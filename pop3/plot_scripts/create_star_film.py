@@ -4,7 +4,14 @@ Stitches together projection plots into a film for stars.
 
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
+    from matplotlib.image import AxesImage
+    from matplotlib.text import Text
+    from rich.console import Console
+
 from pathlib import Path
 import subprocess
 import argparse
@@ -13,21 +20,18 @@ import yt
 import numpy as np
 import polars as pl
 from scipy.special import expit
-from joblib import Parallel, delayed, effective_n_jobs
-from rich.progress import track
+from rich.progress import Progress
+from mpi4py.futures import MPIPoolExecutor
+from mpi4py.MPI import COMM_WORLD
 
 import matplotlib
-matplotlib.use("Agg")
+matplotlib.use("Agg")  # this has to be here (matplotlib is really user-friendly)
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 import yt.visualization.color_maps  # noqa: F401
-# NOTE: these can't be under TYPE_CHECKING guard otherwise joblib crashes (the traceback is esoteric)
-from matplotlib.figure import Figure
-from matplotlib.image import AxesImage
-from matplotlib.text import Text
 
-from ..utils import timer, common_parser
+from ..utils import instantiate_logger, common_parser
 from ..sim.pop3_ledger import star_lifetime_summary, select_stars
 
 MPL_STYLE = Path.home() / "mnras.mplstyle"
@@ -76,6 +80,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def make_star_film(
+    console: Console,
+    executor: MPIPoolExecutor,
     star: dict[str, Any],  # comes from dataframe iters
     projections_root: Path,
     plots_root: Path,
@@ -85,7 +91,7 @@ def make_star_film(
     label: str = star["label"]
 
     paths, snapshot_times_myr, field_ranges, width_kpc = collect_projections(
-        image_dir=projections_root / label, label=label, axis=axis,
+        console=console, executor=executor, image_dir=projections_root / label, label=label, axis=axis,
     )
     field_ranges["metallicity3"] = (METALLICITY_FLOOR, field_ranges["metallicity3"][1])
 
@@ -105,6 +111,7 @@ def make_star_film(
     [f.unlink() for f in frame_dir.glob("*") if f.is_file()]
 
     render_frames(
+        executor=executor,
         projection_paths=paths,
         snapshot_times_myr=snapshot_times_myr,
         frame_times_myr=frame_times_myr,
@@ -142,7 +149,13 @@ def build_frame_times(
     return np.array(frame_times_myr)
 
 
-def collect_projections(image_dir: Path, label: str, axis: str) -> tuple[list[Path], np.ndarray, dict[str, tuple[float, float]], float]:
+def collect_projections(
+    console: Console,
+    executor: MPIPoolExecutor,
+    image_dir: Path, 
+    label: str, 
+    axis: str,
+) -> tuple[list[Path], np.ndarray, dict[str, tuple[float, float]], float]:
     """
     Collects the projection plots from an image directory. Returns:
 
@@ -155,9 +168,13 @@ def collect_projections(image_dir: Path, label: str, axis: str) -> tuple[list[Pa
     projection_paths = sorted(image_dir.glob(f"{label}_*_{axis}.h5"))
     assert projection_paths, f"No projections found in {image_dir}"
 
-    scan_results = Parallel(n_jobs=-1, return_as="generator")(delayed(_scan_projection)(path, field_names) for path in projection_paths)
-
-    results = list(track(scan_results, total=len(projection_paths), description="Collecting projections"))
+    with Progress(console=console) as progress:
+        task_id = progress.add_task("Collecting projection plots", total=len(projection_paths))
+        results = []
+        for result in executor.starmap(_scan_projection, ((path, field_names) for path in projection_paths)):
+            progress.advance(task_id) 
+            if result is not None:
+                results.append(result)
 
     snapshot_times_myr = np.array([result[0] for result in results])
     field_ranges = {  # logic from previous function put into this (somewhat ugly) form
@@ -168,6 +185,7 @@ def collect_projections(image_dir: Path, label: str, axis: str) -> tuple[list[Pa
         for field_name in field_names
     }
 
+    # grab the width in kpc of the plot (set as an extra attr in other function)
     quick_ds = yt.load(projection_paths[0])
     width_kpc = float(quick_ds.parameters["width_kpc"])  # should always be the same
 
@@ -325,6 +343,7 @@ def _render_chunk(  # ugly function signature but necessary for parallelisation
 
 
 def render_frames(
+    executor: MPIPoolExecutor,
     projection_paths: list[Path],
     snapshot_times_myr: np.ndarray,
     frame_times_myr: np.ndarray,
@@ -342,17 +361,14 @@ def render_frames(
     lower_indices = np.searchsorted(snapshot_times_myr, frame_times_myr, side="right") - 1  # finds where sigmoid time intersects snapshot time
     np.clip(lower_indices, a_min=0, a_max=len(snapshot_times_myr)-2, out=lower_indices)  # need -2 to avoid overshooting snapshot time
 
-    n_jobs = effective_n_jobs(-1)  # for the frame_chunks line
-    frame_chunks = np.array_split(np.arange(len(frame_times_myr)), n_jobs)
+    n_workers = COMM_WORLD.Get_size() - 1  # one worker is the orchestrator
+    frame_chunks = np.array_split(np.arange(len(frame_times_myr)), n_workers)  # give each worker a contiguous chunk
 
-    # this call is very ugly I know but performance is quite slow unless parallelised
-    Parallel(n_jobs=n_jobs)(
-        delayed(_render_chunk)(
-            chunk, lower_indices, projection_paths, snapshot_times_myr, frame_times_myr,
-            field_ranges, creation_time_myr, width_kpc, scale_bar_kpc, frame_dir,
-        )
-        for chunk in frame_chunks
-    )
+    # this call is hideous but performance is quite slow unless parallelised
+    list(executor.starmap(_render_chunk, ((
+        chunk, lower_indices, projection_paths, snapshot_times_myr, frame_times_myr,
+        field_ranges, creation_time_myr, width_kpc, scale_bar_kpc, frame_dir,
+    ) for chunk in frame_chunks)))  # list turns it into an iterator so results arrive before assembling the film
 
 
 def assemble_film(frame_dir: Path, output_path: Path, framerate: int) -> None:
@@ -374,18 +390,23 @@ def assemble_film(frame_dir: Path, output_path: Path, framerate: int) -> None:
 if __name__ == "__main__":
 
     args = parse_args()
+    console = instantiate_logger()
     ledger: pl.DataFrame = pl.read_parquet(args.ledger)
-    summaries = star_lifetime_summary(ledger=ledger)
+    summaries = star_lifetime_summary(ledger=ledger) 
 
     projection_dir: Path = args.projdir
     labels = args.stars or [path.name for path in projection_dir.iterdir() if path.is_dir()]
 
-    for star in summaries.pipe(select_stars, labels).iter_rows(named=True):
-        with timer(f"Film {star['label']}"):
+    with MPIPoolExecutor() as executor:
+        for star in summaries.pipe(select_stars, labels).iter_rows(named=True):
             make_star_film(
+                console=console,
+                executor=executor,
                 star=star, 
                 projections_root=args.projdir, 
                 plots_root=args.outdir, 
                 axis=args.axis, 
                 framerate=args.framerate
             )
+            console.log(f"Finished film for {star['label']}.")
+

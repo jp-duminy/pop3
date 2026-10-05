@@ -19,10 +19,10 @@ import yt
 from yt.data_objects.particle_filters import add_particle_filter
 import numpy as np
 import polars as pl
-from joblib import Parallel, delayed
-from rich.progress import track
+from mpi4py.futures import MPIPoolExecutor
+from rich.progress import Progress
 
-from ..utils import timer, common_parser, DATA_DIR
+from ..utils import instantiate_logger, common_parser, DATA_DIR
 
 FIELD_MAP = {
     "positions_unitary": ("particle_position", "unitary"),
@@ -32,6 +32,7 @@ FIELD_MAP = {
     "metallicities": ("metallicity_fraction", "dimensionless"),
     "creation_times_myr": ("creation_time", "Myr"),
 }
+MIN_SEP_MYR = 1e-3  # to filter Enzo's invasive star population
 
 
 def parse_args() -> argparse.Namespace:
@@ -54,51 +55,6 @@ def parse_args() -> argparse.Namespace:
 
     return parser.parse_args()
 
-
-def build_pop3_ledger(
-    field_map: dict[str, tuple[str, str]],
-    reduced_snap_dir: Path,
-    pop3_metal_threshold: float = 1e-10,
-    min_sep_myr: float = 1e-3,
-    save_path: Path | None = None,
-) -> pl.DataFrame:
-    """
-    Constructs a ledger of Pop3 stars across the reduced snapshots, which can be saved as a parquet file (we
-    are working in polars space). This is so we can send queries to yt for spheres, profiles, rays, etc. on the 
-    chunky raw snapshots (with timeseries). 
-    """
-    yt.set_log_level("warning")  # avoids lots of verbose output
-    snapshot_paths = sorted(reduced_snap_dir.glob(pattern="DD*.h5"))  # sort; joblib preserves output order when writing to list
-
-    results = Parallel(n_jobs=-1, return_as="generator")(delayed(create_snapshot_dataframe)(  # return as generator for rich
-        snapshot=snapshot, pop3_threshold=pop3_metal_threshold, field_map=field_map
-        ) for snapshot in snapshot_paths)
-
-    frame_list = [
-        frame
-        for frame in track(results, total=len(snapshot_paths), description="Collecting Pop 3 stars")
-        if frame is not None  # filter None (from empty snaps)
-    ]  
-
-    ledger: pl.DataFrame = pl.concat(frame_list)  # vertical concat
-    ledger = ledger.pipe(filter_duplicates, min_sep_myr=min_sep_myr).with_columns(age_myr(), is_alive(), star_label())
-
-    print(f"Total Pop3 Stars: {ledger.n_unique("particle_indices")}")
-
-    with pl.Config(tbl_rows=-1):
-        df_diagnostic = (
-        ledger.sort("particle_indices")
-        .unique("particle_indices", keep="first", maintain_order=True)
-        .select("label", "particle_indices", "creation_times_myr", "metallicities")
-        )
-        print(df_diagnostic)
-
-    if save_path:
-        ledger.write_parquet(save_path)
-        print(f"Wrote parquet file at {save_path}")
-
-    return ledger       
-
 def age_myr() -> pl.Expr:
     """
     Calculates star age in Myr from current_time - creation_time.
@@ -115,7 +71,7 @@ def is_alive() -> pl.Expr:
     """
     Determines whether or not a star is alive.
     """
-    return (pl.col("ptypes") != 1).alias("is_alive")
+    return ((pl.col("ptypes") == 5) & (pl.col("masses_msun") > 1e-3)).alias("is_alive")
 
 def alive_snapshots(ledger: pl.DataFrame) -> pl.DataFrame:
     """
@@ -242,15 +198,43 @@ def add_metallicity3(ds: Dataset) -> None:
 
 
 if __name__ == "__main__":
+    """
+    Constructs the Pop3 ledger.
+    """
 
+    yt.set_log_level("warning")  # avoids lots of verbose output
     args = parse_args()
     parquet_path = args.outdir / "pop3_ledger.parquet"
+    console = instantiate_logger()
 
-    with timer("Ledger construction"):
-        build_pop3_ledger(
-            field_map=FIELD_MAP,
-            reduced_snap_dir=DATA_DIR / "pop3",
-            save_path=parquet_path,
-            pop3_metal_threshold=args.metal,
+    snapshot_paths = sorted((DATA_DIR / "pop3").glob(pattern="DD*.h5"))  # sort; futures preserves order when writing to list
+
+    with Progress(console=console) as progress, MPIPoolExecutor() as executor:
+
+        task_id = progress.add_task("Making Pop3 Ledger", total=len(snapshot_paths))
+        task_args = ((path, args.metal, FIELD_MAP) for path in snapshot_paths)
+
+        frame_list: list[pl.DataFrame] = []
+
+        # NOTE: looping is just for the progress bar, you could do frame_list = executor.starmap(...)
+        for frame in executor.starmap(create_snapshot_dataframe, task_args):  # found this cool method on mpi4py.futures
+            progress.advance(task_id) 
+            if frame is not None:
+                frame_list.append(frame)
+
+    ledger = pl.concat(frame_list)  # vertical concat
+    ledger = ledger.pipe(filter_duplicates, min_sep_myr=MIN_SEP_MYR).with_columns(age_myr(), is_alive(), star_label())
+
+    console.log(f"Total Pop3 Stars: {ledger.n_unique("particle_indices")}")
+
+    with pl.Config(tbl_rows=-1):  # set this so the whole dataframe prints
+        df_diagnostic = (
+        ledger.sort("particle_indices")
+        .unique("particle_indices", keep="first", maintain_order=True)
+        .select("label", "particle_indices", "creation_times_myr", "metallicities")
         )
+        console.log(df_diagnostic)
 
+    ledger.write_parquet(parquet_path)
+    console.log(f"Wrote parquet file at {parquet_path}")
+ 

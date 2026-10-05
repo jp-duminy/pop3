@@ -5,10 +5,15 @@ Minor utilities.
 """
 
 import argparse
+import logging
 from typing import Generator
 from pathlib import Path
 from contextlib import contextmanager
 from time import perf_counter
+
+import yt
+from rich.console import Console
+from rich.logging import RichHandler
 
 # top-level data directory
 DATA_DIR = Path("/cephfs2/brs/pop2-prime/cc_512_no_dust_continue")
@@ -30,6 +35,27 @@ def common_parser() -> argparse.ArgumentParser:
     parser.add_argument("-s", "--stars", nargs="+", help="Stars to process (list labels).")
 
     return parser
+
+
+def instantiate_logger() -> Console:
+    """
+    Instantiates the terminal UI with parallel-aware rich. Returns a `Console` object.
+    """
+    yt.set_log_level("error")
+
+    try:  # route output to tty so progress bars and live output appears 
+        console = Console(file=open("/dev/tty", "w"), force_terminal=True) 
+    except OSError:  # in case that file doesn't exist
+        console = Console(force_terminal=True)
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+        datefmt="[%X]",
+        handlers=[RichHandler(console=console, show_path=False)],
+    )
+
+    return console
 
 
 @contextmanager

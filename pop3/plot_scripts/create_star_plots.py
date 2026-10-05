@@ -1,22 +1,24 @@
 """
 
 This routine generates projection plots for density, metallicity and temperature (weighted
-by density) for requested stars. It is an expensive one, taking ~6 hours for one star.
+by density) for requested stars. It is an expensive one, taking multiple hours for one star.
 
 """
 
 
 import argparse
 import gc
+import logging
 from pathlib import Path
+from concurrent.futures import as_completed
 
 import polars as pl
 import yt
+from mpi4py.futures import MPIPoolExecutor
+from rich.progress import Progress
 
 from ..sim.pop3_ledger import select_stars, star_lifetime_summary, add_metallicity3
-from ..utils import timer, common_parser, DATA_DIR
-
-yt.enable_parallelism()
+from ..utils import common_parser, instantiate_logger, DATA_DIR
 
 def build_film_tasks(
     ledger: pl.DataFrame, 
@@ -50,7 +52,8 @@ def build_film_tasks(
     )
 
     if not all(Path(path).exists() for path in tasks["snapshot_path"]):  # quick guard
-        print("Warning: not all snapshot paths exist (should not happen by construction).")
+        logger = logging.getLogger(__name__)
+        logger.warning("Warning: not all snapshot paths exist (should not happen by construction).")
 
     return tasks
 
@@ -79,12 +82,6 @@ def parse_args() -> argparse.Namespace:
         help="Axis to project onto."
     )
     parser.add_argument(
-        "-q",
-        "--quickpeek",
-        action="store_true",
-        help="Saves pngs for quick inspection."
-    )
-    parser.add_argument(
         "-f",
         "--force",
         action="store_true",
@@ -100,18 +97,18 @@ def parse_args() -> argparse.Namespace:
 
     return parser.parse_args()
 
-def generate_star_images(
-    outdir: Path,
-    tasks: pl.DataFrame,
-    width_kpc: float = 1.0,
+def project_star_snapshot(
+    row: dict[str, object], 
+    outpath: Path, 
+    width_kpc: float, 
     axis: str = "x",
-    quickpeek: bool = False,
-    override: bool = False,
-) -> None:
+) -> Path:
     """
-    Generates projection plots of the star in each snapshot and saves them as .h5 files to the 
-    requested output directory.
+    Generates a single projection plot of the star from a snapshot, saved as a .h5 file
+    to outdir. This function should be called by workers.
     """
+    yt.set_log_level("error")
+
     fields = [
         ("gas", "density"),
         ("gas", "temperature"),
@@ -119,70 +116,75 @@ def generate_star_images(
     ]
     weight_field = ("gas", "density")
 
-    for label in tasks["label"].unique():
-        (outdir / label).mkdir(parents=True, exist_ok=True)
-        (outdir / label / "projection_images").mkdir(parents=True, exist_ok=True)
+    ds = yt.load(row["snapshot_path"])
+    add_metallicity3(ds=ds)
 
-    for row in yt.parallel_objects(list(tasks.iter_rows(named=True)), dynamic=False):
+    centre = ds.arr(row["centre_unitary"], "unitary")
+    width = ds.quan(width_kpc, "kpc")
 
-        yt.mylog.info(f"Processing {row['snapshot_path']}")
+    # britton's dimensions
+    region = ds.box(centre - 1.05 * width / 2,
+            centre + 1.05 * width / 2)
 
-        star_dir = outdir / row["label"]
-        outpath = star_dir / f"{row['base_name']}_{axis}.h5"
+    p = yt.ProjectionPlot(
+        ds, axis, fields, weight_field=weight_field,
+        center=centre, width=width, data_source=region)
+    
+    data = {field[1]: p.frb[field] for field in fields}  # package the projection plot into a dict
 
-        if outpath.exists() and not override:
-            yt.mylog.info(f"{outpath} already exists.")
-            continue
+    del p  # free up memory
 
-        ds = yt.load(row["snapshot_path"])
-        add_metallicity3(ds=ds)
+    extra_attrs = {"centre_unitary": centre.to("unitary"), "width_kpc": width.to("kpc")}
+    yt.save_as_dataset(ds, filename=str(outpath), data=data, extra_attrs=extra_attrs)  # yt doesn't like Path objects
 
-        centre = ds.arr(row["centre_unitary"], "unitary")
-        width = ds.quan(width_kpc, "kpc")
+    region.clear_data()
+    del region  # free up memory again and force garbage collection
+    del ds
+    gc.collect()
 
-        region = ds.box(centre - 1.05 * width / 2,
-                centre + 1.05 * width / 2)
-
-        with timer("Generate Plot:"):
-            p = yt.ProjectionPlot(
-                ds, axis, fields, weight_field=weight_field,
-                center=centre, width=width, data_source=region)
-            data = {field[1]: p.frb[field] for field in fields}
-
-        if quickpeek:
-            if yt.is_root():
-                p.save(f"{star_dir / 'projection_images'}/")
-        del p
-
-        if yt.is_root():
-            extra_attrs = {"centre_unitary": centre.to("unitary"), "width_kpc": width.to("kpc")}
-            yt.save_as_dataset(ds, filename=str(outpath), data=data, extra_attrs=extra_attrs)
-
-        region.clear_data()
-        del region
-        del ds
-        val = gc.collect()
-        yt.mylog.info(f"Removed {val:,.2f} objects.")
+    return outpath
 
 if __name__ == "__main__":
 
     args = parse_args()
+    outdir: Path = args.outdir
+
+    console = instantiate_logger()
 
     ledger = pl.read_parquet(args.ledger)
     labels = args.stars or star_lifetime_summary(ledger)["label"].to_list()
 
-    tasks: pl.DataFrame = build_film_tasks(
+    all_tasks: pl.DataFrame = build_film_tasks(
         ledger=ledger, 
         labels=labels,
         post_sn_cutoff=args.postdeath,
         snapshot_dir=DATA_DIR
     )
 
-    generate_star_images(
-        outdir=args.outdir,
-        tasks=tasks,
-        width_kpc=args.width,
-        axis=args.axis,
-        quickpeek=args.quickpeek,
-        override=args.force,
-    )
+    # make a directory for each requested star
+    for label in all_tasks["label"].unique():
+        (outdir / label).mkdir(parents=True, exist_ok=True)
+
+    # reduce tasks if the outputs already exist
+    filtered_tasks: list[tuple[dict[str, object], Path]] = []
+
+    for row in all_tasks.iter_rows(named=True):
+        outpath = outdir / row["label"] / f"{row['base_name']}_{args.axis}.h5"
+        if outpath.exists() and not args.force:
+            continue
+        filtered_tasks.append((row, outpath))
+    
+    console.log(f"{len(filtered_tasks)} tasks to run; {all_tasks.height - len(filtered_tasks)} skipped.")
+
+    # pool workers for film making in conjunction with task-based progress bar
+    with Progress(console=console) as progress, MPIPoolExecutor() as executor:
+        task_id = progress.add_task("Projecting", total=len(filtered_tasks))
+        futures = [
+            executor.submit(project_star_snapshot, row, outpath, args.width, args.axis)
+            for row, outpath in filtered_tasks
+        ]
+
+        for future in as_completed(futures):  # as_completed() gives us the iterator for the progress bar
+            outpath = future.result()
+            console.log(f"Saved {outpath}.")
+            progress.advance(task_id)
