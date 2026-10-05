@@ -32,7 +32,7 @@ SPHERE_FIELDS = [
     ("gas", "He_p0_number_density"),
     ("gas", "He_p1_number_density"),
     ("gas", "He_p2_number_density"),
-    ("gas", "E_p0_number_density"),  # electron number density
+    ("gas", "El_number_density"),  # electron number density
 
     # ionisation rates
     ("gas", "H_p0_ionization_rate"),
@@ -104,8 +104,8 @@ def create_star_sphere(
     radius_kpc: float, 
 ) -> Path:
     """
-    Generates a single projection plot of the star from a snapshot, saved as a .h5 file
-    to outdir. This function should be called by workers.
+    Generates a sphere of specified radius_kpc to outpath, and stores the fields
+    specified in the module-level SPHERE_FIELDS. This function should be called by workers.
     """
     yt.set_log_level("error")
 
@@ -117,8 +117,6 @@ def create_star_sphere(
 
     sp = ds.sphere(centre, radius)
     sp.save_as_dataset(filename=str(outpath), fields=SPHERE_FIELDS)
-
-    yt.save_as_dataset(ds, filename=str(outpath), data=sp)  # yt doesn't like Path objects
 
     del ds
     gc.collect()
