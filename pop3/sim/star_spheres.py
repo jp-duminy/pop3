@@ -116,7 +116,8 @@ def create_star_sphere(
     radius = ds.quan(radius_kpc, "kpc")
 
     sp = ds.sphere(centre, radius)
-    sp.save_as_dataset(filename=str(outpath), fields=SPHERE_FIELDS)
+    sp.get_data(SPHERE_FIELDS)  # faster to use get_data so all queries are done in one pass then stored on the sphere
+    sp.save_as_dataset(filename=str(outpath), fields=SPHERE_FIELDS)  # and then save
 
     del ds
     gc.collect()
