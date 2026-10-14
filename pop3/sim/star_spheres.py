@@ -46,6 +46,7 @@ SPHERE_FIELDS = [
     ("index", "x"),
     ("index", "y"),
     ("index", "z"),
+    ("index", "radius"),  # needed for profiles as the grid hierarchy gets flattened
 ]
 
 def build_sphere_tasks(

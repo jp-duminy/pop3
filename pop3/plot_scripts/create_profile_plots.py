@@ -25,19 +25,30 @@ from rich.progress import Progress
 
 from ..utils import common_parser, instantiate_logger
 
+MNRAS_STYLE = Path.home() / "mnras.mplstyle"
+plt.style.use(MNRAS_STYLE)
+
 # NOTE: quantities change to grid when stored
 RADIAL_FIELDS: list[tuple[tuple[str, str], tuple[str, str]]] = [
-    (("index", "radius"), ("grid", "density")),
-    (("index", "radius"), ("grid", "temperature")),
-    (("index", "radius"), ("grid", "metallicity3")),
-    (("index", "radius"), ("grid", "H_p0_number_density")),
-    (("index", "radius"), ("grid", "H_p1_number_density")),
+    (("grid", "radius"), ("grid", "density")),
+    (("grid", "radius"), ("grid", "temperature")),
+    (("grid", "radius"), ("grid", "metallicity3")),
+    (("grid", "radius"), ("grid", "H_p0_number_density")),
+    (("grid", "radius"), ("grid", "H_p1_number_density")),
 ]
 PHASE_FIELDS: list[tuple[tuple[str, str], tuple[str, str]]] = [
     (("grid", "density"), ("grid", "temperature")),
     (("grid", "density"), ("grid", "metallicity3")),
     (("grid", "temperature"), ("grid", "metallicity3")),
 ]
+LABELS: dict[str, str] = {
+    "density": r"$\rho\ [\mathrm{g\,cm^{-3}}]$",
+    "temperature": r"$T\ [\mathrm{K}]$",
+    "metallicity3": r"$Z\ [Z_{\odot}]$",
+    "H_p0_number_density": r"$n_{\rm HI}\ [\mathrm{cm^{-3}}]$",
+    "H_p1_number_density": r"$n_{\rm HII}\ [\mathrm{cm^{-3}}]$",
+    "radius": r"$R\ [\mathrm{cm}]$"
+}
 
 def parse_args() -> argparse.Namespace:
     """
@@ -90,6 +101,7 @@ def process_sphere(task: SphereTask, outdir: Path, profile_root_dir: Path | None
     """
     Takes a snapshot sphere and produces profiles and plots.
     """
+    yt.set_log_level("error")
     sp_ds = yt.load(task.sphere_path)
 
     # a lot of tedious directory making
@@ -100,25 +112,28 @@ def process_sphere(task: SphereTask, outdir: Path, profile_root_dir: Path | None
         profile_dir.mkdir(parents=True, exist_ok=True)
 
     # both profiles can reuse the same function
-    radial_profiles = build_profiles(sp_ds, field_pairs=RADIAL_FIELDS, save_dir=profile_dir)
-    plot_profile_figure(
-        profiles=radial_profiles, 
-        title=f"Radial Profiles for {task.label} in {task.snapshot}",
-        output_path=task_outdir / "radial_plot.png", 
-        share_x=True, 
-        dims=(5, 1),
-    )
+    with plt.rc_context({"figure.figsize": (7.0, 7.4)}):
+    
+        radial_profiles = build_profiles(sp_ds, field_pairs=RADIAL_FIELDS, save_dir=profile_dir)
+        plot_profile_figure(
+            profiles=radial_profiles, 
+            title=f"Radial Profiles for {task.label} in {task.snapshot}",
+            output_path=task_outdir / "radial_plot.png", 
+            share_x=True, 
+            dims=(5, 1),
+        )
     del radial_profiles  # free up memory
     gc.collect()
 
-    phase_profiles = build_profiles(sp_ds,field_pairs=PHASE_FIELDS, save_dir=profile_dir)
-    plot_profile_figure(
-        profiles=phase_profiles, 
-        title=f"Phase Profiles for {task.label} in {task.snapshot}",
-        output_path=task_outdir / "phase_plot.png", 
-        share_x=False, 
-        dims=(1, 3)
-    )
+    with plt.rc_context({"figure.figsize": (7.0, 2.6)}):
+        phase_profiles = build_profiles(sp_ds,field_pairs=PHASE_FIELDS, save_dir=profile_dir)
+        plot_profile_figure(
+            profiles=phase_profiles, 
+            title=f"Phase Profiles for {task.label} in {task.snapshot}",
+            output_path=task_outdir / "phase_plot.png", 
+            share_x=False, 
+            dims=(1, 3)
+        )
     del phase_profiles
     gc.collect()
 
@@ -156,12 +171,13 @@ def build_profiles(
     - HI density
     """
     profiles: dict[str, ProfileND] = {}
-    centre = sp_ds.center.to("unitary")
-    sp_ds.data.set_field_parameter("center", centre)
+
+    sphere_data = sp_ds.all_data()
+    sphere_data.set_field_parameter("center", sp_ds.parameters["center"].to("unitary"))
 
     for pair in field_pairs:
 
-        profile = sp_ds.data.profile(  # default 64 bins
+        profile = sphere_data.profile(  # default 64 bins
             bin_fields=list(pair),  # convert the pair back to a list (2n for 2D profile)
             fields=[("grid", "cell_mass")], 
             weight_field=None,
@@ -206,12 +222,14 @@ def plot_profile_figure(
         mass_norm = LogNorm(vmin=mass_values[mass_values > 0].min(), vmax=mass_values.max())  # avoid zero mass biasing plot
 
         # similar to yt complex plots example but with Britton's code
-        mesh = axis.pcolormesh(profile.x, profile.y, mass_values, norm=mass_norm)
+        mesh = axis.pcolormesh(profile.x, profile.y, mass_values, norm=mass_norm, cmap="cmyt.dusk")
         axis.set_xscale("log")
         axis.set_yscale("log")
-        axis.set_xlabel(f"{profile.x_field[1]} [{profile.x.units}]")
-        axis.set_ylabel(f"{profile.y_field[1]} [{profile.y.units}]")
-        fig.colorbar(mesh, ax=axis, label=r"$M_{\rm gas}\ [M_\odot]$")
+        axis.set_xlabel(f"{LABELS[profile.x_field[1]]}")
+        axis.set_ylabel(f"{LABELS[profile.y_field[1]]}")
+        if share_x:
+            axis.label_outer()
+        fig.colorbar(mesh, ax=axis, label=r"$M_{\rm gas}\ [M_\odot]$", pad=0.01, aspect=10)
 
     fig.suptitle(title)  # shared title for all figures
     fig.savefig(output_path)
@@ -222,6 +240,7 @@ if __name__ == "__main__":
 
     args = parse_args()
     console = instantiate_logger()
+    yt.set_log_level("error")
 
     outdir: Path = args.outdir
     all_tasks = build_plot_tasks(
