@@ -4,6 +4,12 @@ Creates yt spheres around the Pop3 stars to be saved as datasets for analysis.
 
 """
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from yt.data_objects.static_output import Dataset
+    from rich.console import Console
+
 import argparse
 import gc
 from pathlib import Path
@@ -11,6 +17,8 @@ from concurrent.futures import as_completed
 
 import polars as pl
 import yt
+import numpy as np
+from scipy.optimize import brentq
 from mpi4py.futures import MPIPoolExecutor
 from rich.progress import Progress
 
@@ -126,12 +134,59 @@ def create_star_sphere(
     return outpath
 
 
-def compute_hii_region_size() -> None:
+def compute_hii_region_size(
+    sp: Dataset,
+    root_constant: float = 0.5
+) -> Dataset:
     """
-    Takes in _ and returns the size of the HII region (under construction).
+    Reformulates the ionisation densities into a root finding problem in fHII and applies the Brent
+    method to calculate the size of the HII region. Returns new sphere.
     """
-    pass
+    shell_profile = sp.profile(
+        bin_fields=[("grid", "radius")],
+        fields=[("gas", "H_p1_number_density"), ("gas", "H_p0_number_density")],
+        weight_field=("gas", "cell_volume"),
+        units={("grid", "radius"): "kpc"},
+    )
 
+    populated = shell_profile.used
+    shell_radii = shell_profile.x[populated]
+
+    hii_profile = shell_profile[("gas", "H_p1_number_density")][populated]
+    hi_profile = shell_profile[("gas", "H_p0_number_density")][populated]
+
+    f_hii = hii_profile / (hi_profile + hii_profile)
+
+    bracket_b = np.max(shell_radii)
+    first_neutral_shell = np.argmax(f_hii < root_constant)  # first radius where the HII density drops below ~1
+    bracket_a = shell_radii[first_neutral_shell - 1]  # in case the line above is < root_constant, go one back
+
+    # raise for this so we can retune the original 1kpc guess if need be
+    assert f_hii[-1] <= root_constant, f"Ionisation front lies beyond initial sphere radius {bracket_b}"
+
+    ionisation_front = brentq(
+        _ionised_frac, 
+        a=bracket_a.d,
+        b=bracket_b.d,
+        args=(shell_radii.d, f_hii.d, root_constant,)  # args for interp
+    )
+
+    radius = sp.ds.quan(ionisation_front, "kpc")
+    new_sphere = sp.ds.sphere(sp.center, radius)
+
+    return new_sphere
+
+
+def _ionised_frac(
+    radius: float,
+    shell_radii: np.ndarray,
+    shell_f_hii: np.ndarray,
+    root_constant: float,
+) -> float:
+    """
+    Helper function to get f_hii as a function of r with the specified root_constant
+    """
+    return np.interp(radius, shell_radii, shell_f_hii) - root_constant
 
 if __name__ == "__main__":
 
