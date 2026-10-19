@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, NamedTuple
 if TYPE_CHECKING:
     from yt.data_objects.static_output import Dataset
     from yt.data_objects.profiles import ProfileND
+    from matplotlib.axes import Axes
+    from matplotlib.colors import Colormap
 
 import gc
 import argparse
@@ -19,6 +21,7 @@ from concurrent.futures import as_completed
 
 import yt
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.colors import LogNorm
 from mpi4py.futures import MPIPoolExecutor
 from rich.progress import Progress
@@ -115,24 +118,20 @@ def process_sphere(task: SphereTask, outdir: Path, profile_root_dir: Path | None
     with plt.rc_context({"figure.figsize": (7.0, 7.4)}):
     
         radial_profiles = build_profiles(sp_ds, field_pairs=RADIAL_FIELDS, save_dir=profile_dir)
-        plot_profile_figure(
+        plot_radial_figure(
             profiles=radial_profiles, 
-            title=f"Radial Profiles for {task.label} in {task.snapshot}",
-            output_path=task_outdir / "radial_plot.png", 
-            share_x=True, 
-            dims=(5, 1),
+            title=f"Radial Profiles for {task.label} at z = {sp_ds.current_redshift:.2f}",
+            output_path=task_outdir / f"radial_plot.png", 
         )
     del radial_profiles  # free up memory
     gc.collect()
 
     with plt.rc_context({"figure.figsize": (7.0, 2.6)}):
         phase_profiles = build_profiles(sp_ds,field_pairs=PHASE_FIELDS, save_dir=profile_dir)
-        plot_profile_figure(
+        plot_phase_figure(
             profiles=phase_profiles, 
-            title=f"Phase Profiles for {task.label} in {task.snapshot}",
-            output_path=task_outdir / "phase_plot.png", 
-            share_x=False, 
-            dims=(1, 3)
+            title=f"Phase Profiles for {task.label} at z = {sp_ds.current_redshift:.2f}",
+            output_path=task_outdir / f"phase_plot.png", 
         )
     del phase_profiles
     gc.collect()
@@ -194,15 +193,14 @@ def build_profiles(
     return profiles
 
 
-def plot_profile_figure(
+def plot_phase_figure(
     profiles: dict[str, ProfileND], 
     title: str, 
     output_path: Path, 
-    share_x: bool,
-    dims: tuple[int, int],
+    dims: tuple[int, int] = (1, 3),
 ) -> None:
     """
-    Creates a profile figure for an input dict of profiles.
+    Creates a phase profile figure for an input dict of profiles. 
     """
     if len(profiles.keys()) != dims[0] * dims[1]:
         raise ValueError(f"Passed dims ({dims[0] * dims[1]}) disagree with the number of profiles ({len(profiles.keys())}) in the dict.")
@@ -212,14 +210,24 @@ def plot_profile_figure(
     fig, axes = plt.subplots(
         nrows=nrows, 
         ncols=ncols,
-        sharex=share_x,
+        sharex=False,
         squeeze=False,
     )
+
+    mass_extrema = []
+
+    for profile in profiles.values():
+        mass_vals = profile["grid", "cell_mass"].to("Msun")
+        mass_extrema.append(np.min(mass_vals[mass_vals > 0]))
+        mass_extrema.append(np.max(mass_vals))
+
+    mass_floor = np.min(mass_extrema)
+    mass_ceiling = np.max(mass_extrema)
+    mass_norm = LogNorm(vmin=mass_floor, vmax=mass_ceiling)  # avoid zero mass biasing plot
 
     for axis, profile in zip(axes.flat, profiles.values()):
 
         mass_values = profile["grid", "cell_mass"].to("Msun").T  # pcolormesh expects (y, x)
-        mass_norm = LogNorm(vmin=mass_values[mass_values > 0].min(), vmax=mass_values.max())  # avoid zero mass biasing plot
 
         # similar to yt complex plots example but with Britton's code
         mesh = axis.pcolormesh(profile.x, profile.y, mass_values, norm=mass_norm, cmap="cmyt.dusk")
@@ -227,14 +235,130 @@ def plot_profile_figure(
         axis.set_yscale("log")
         axis.set_xlabel(f"{LABELS[profile.x_field[1]]}")
         axis.set_ylabel(f"{LABELS[profile.y_field[1]]}")
-        if share_x:
-            axis.label_outer()
-        fig.colorbar(mesh, ax=axis, label=r"$M_{\rm gas}\ [M_\odot]$", pad=0.01, aspect=10)
+
+    fig.colorbar(
+        mesh,  # this technically works
+        ax=axes, 
+        label=r"$M_{\rm gas}\ [M_\odot]$", 
+        pad=0.01, 
+        aspect=10,
+    )
 
     fig.suptitle(title)  # shared title for all figures
     fig.savefig(output_path)
     plt.close(fig)
 
+
+def plot_radial_figure(
+    profiles: dict[str, ProfileND], 
+    title: str, 
+    output_path: Path, 
+    colour: str = "C0",  # just pick the first colour
+    dims: tuple[int, int] = (5, 1),
+) -> None:
+    """
+    Creates a radial profile figure for an input dict of profiles. 
+    """
+    if len(profiles.keys()) != dims[0] * dims[1]:
+        raise ValueError(f"Passed dims ({dims[0] * dims[1]}) disagree with the number of profiles ({len(profiles.keys())}) in the dict.")
+
+    nrows, ncols = dims
+
+    fig, axes = plt.subplots(
+        nrows=nrows, 
+        ncols=ncols,
+        sharex=True,
+        squeeze=False,
+    )
+
+    for axis, profile in zip(axes.flat, profiles.values()):
+
+        plot_profile_distribution(
+            axis=axis,
+            profile=profile,
+            colour=colour,
+        )
+
+        axis.set_xscale("log")
+        axis.set_yscale("log")
+        axis.set_xlabel(f"{LABELS[profile.x_field[1]]}")
+        axis.set_ylabel(f"{LABELS[profile.y_field[1]]}")
+        axis.set_xlim(np.min(profile.x.d), np.max(profile.x.d))
+        axis.label_outer()
+
+    fig.suptitle(title)  # shared title for all figures
+    fig.savefig(output_path)
+    plt.close(fig)
+
+
+def plot_profile_distribution(
+    axis: Axes,
+    profile: ProfileND,
+    colour: Colormap,
+    step: float = 0.01,
+    alpha_scale: float = 1.0,
+) -> None:
+    """
+    Plots a profile distribution with quantile bands (via fill_between, from alpha_scale param).
+    """
+    x_data = profile.x.d
+    y_data = profile.y.d
+    z_data = profile["grid", "cell_mass"].d
+
+    populated_columns = profile.used.any(axis=1)
+    x_data = x_data[populated_columns]
+    z_data = z_data[populated_columns, :]
+
+    z_cdf = np.cumsum(z_data, axis=1) / np.sum(z_data, axis=1, keepdims=True)  # cumulative distribution function in z
+    z_cdf[:, -1] = 1.0  # if you don't do this roundoff variance can make it 0.999 and the outermost bin gets nuked
+    y_med = y_data[np.argmax(z_cdf >= 0.5, axis=1)]  # median at 0.5, argmax finds first bin where this is exceeded
+
+    axis.plot(
+        x_data[~np.isnan(y_med)], 
+        y_med[~np.isnan(y_med)],
+        alpha=0.9,
+        color=colour,
+    )
+
+    n_bands = int(np.round(0.5 / step))  # np.round returns float even if rounded to integer
+
+    offsets = np.linspace(step, 0.5, n_bands)
+    # separate low and high points for shaded quantiles
+    lower_levels = 0.5 - offsets
+    upper_levels = 0.5 + offsets
+    plot_alpha = 2.0 * alpha_scale * step
+
+    lower_vals = _profile_quantiles(z_cdf, y_data, lower_levels)
+    upper_vals = _profile_quantiles(z_cdf, y_data, upper_levels)
+
+    band_mask = np.logical_and.accumulate(lower_vals != np.min(y_data), axis=1)
+
+    for j in range(len(offsets)):
+        mask_j = band_mask[:, j]
+        lo, hi = lower_vals[mask_j, j], upper_vals[mask_j, j]
+
+        axis.fill_between(
+            x_data[mask_j], 
+            lo, 
+            hi,
+            linewidth=0, 
+            alpha=plot_alpha, 
+            color=colour,
+        )
+
+
+def _profile_quantiles(
+    cdf: np.ndarray,   
+    y_bin_centres: np.ndarray,         
+    quantile_levels: np.ndarray,      
+) -> np.ndarray:
+    """
+    Gets the bin centres from y_bin_centres corresponding to where the specified cumulative fractions are crossed.
+    """                     
+    crossed = cdf[:, :, np.newaxis] >= quantile_levels[np.newaxis, np.newaxis, :]
+    quantile_idx = np.argmax(crossed, axis=1)
+
+    return y_bin_centres[quantile_idx]
 
 if __name__ == "__main__":
 
