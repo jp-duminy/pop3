@@ -79,11 +79,13 @@ def extract_sightline(
     Returns:
 
     - arrays: a tuple of arrays, one for each field.
+    - path_length: the path length of the ray
     """
     centre = sp_ds.parameters["center"].to("cm")
     ray = sp_ds.ray(centre, coords + centre)
     ray_sort = np.argsort(ray["t"], stable=True)
 
     arrays = tuple(ray[field][ray_sort] for field in fields)
+    path_length = ray["t"][ray_sort] * np.linalg.norm(coords)
 
-    return arrays
+    return arrays, path_length
