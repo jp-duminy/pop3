@@ -13,10 +13,14 @@ from pathlib import Path
 import polars as pl
 import yt
 from mpi4py.futures import MPIPoolExecutor
-from rich.progress import Progress
 
 from ..sim.pop3_ledger import add_metallicity3, select_stars, star_lifetime_summary
-from ..utils import instantiate_logger, load_config, parse_args
+from ..utils import (
+    instantiate_logger,
+    load_config,
+    my_progress,
+    parse_args,
+)
 
 
 def build_film_tasks(
@@ -135,7 +139,7 @@ if __name__ == "__main__":
     console.log(f"{len(filtered_tasks)} tasks to run; {all_tasks.height - len(filtered_tasks)} skipped.")
 
     # pool workers for film making in conjunction with task-based progress bar
-    with Progress(console=console) as progress, MPIPoolExecutor() as executor:
+    with my_progress(console=console) as progress, MPIPoolExecutor() as executor:
         task_id = progress.add_task("Projecting", total=len(filtered_tasks))
         futures = [
             executor.submit(project_star_snapshot, row, outpath, config.plots.frame_width, config.plots.axis)

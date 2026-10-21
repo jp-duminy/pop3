@@ -18,10 +18,14 @@ import numpy as np
 import polars as pl
 import yt
 from mpi4py.futures import MPIPoolExecutor
-from rich.progress import Progress
 from yt.data_objects.particle_filters import add_particle_filter
 
-from ..utils import instantiate_logger, load_config, parse_args
+from ..utils import (
+    instantiate_logger,
+    load_config,
+    my_progress,
+    parse_args,
+)
 
 FIELD_MAP = {
     "positions_unitary": ("particle_position", "unitary"),
@@ -197,7 +201,7 @@ if __name__ == "__main__":
         (config.spheres.data_dir / "pop3").glob(pattern="DD*.h5")
     )  # sort; futures preserves order when writing to list
 
-    with Progress(console=console) as progress, MPIPoolExecutor() as executor:
+    with my_progress(console=console) as progress, MPIPoolExecutor() as executor:
         task_id = progress.add_task("Making Pop3 Ledger", total=len(snapshot_paths))
         task_args = ((path, config.stars.max_metallicity, FIELD_MAP) for path in snapshot_paths)
 

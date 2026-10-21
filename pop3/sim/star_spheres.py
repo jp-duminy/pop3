@@ -17,11 +17,15 @@ import numpy as np
 import polars as pl
 import yt
 from mpi4py.futures import MPIPoolExecutor
-from rich.progress import Progress
 from scipy.optimize import brentq
 
 from ..sim.pop3_ledger import add_metallicity3, select_stars, star_lifetime_summary
-from ..utils import instantiate_logger, load_config, parse_args
+from ..utils import (
+    instantiate_logger,
+    load_config,
+    my_progress,
+    parse_args,
+)
 
 SPHERE_FIELDS = [
     # basic gas fields
@@ -62,9 +66,9 @@ def build_sphere_tasks(ledger: pl.DataFrame, labels: list[str], snapshot_dir: Pa
         .filter(pl.col("current_time_myr") <= pl.col("first_dead_myr").fill_null(float("inf")))
         .sort("particle_indices", "snapshot")  # time order
         .with_columns(  # add directory info for loading & saving
-            pl.format(
-                "{}/{}/{}", pl.lit(str(snapshot_dir)), pl.col("snapshot"), pl.col("snapshot")
-            ).alias("snapshot_path"),  # concatenate directories
+            pl.format("{}/{}/{}", pl.lit(str(snapshot_dir)), pl.col("snapshot"), pl.col("snapshot")).alias(
+                "snapshot_path"
+            ),  # concatenate directories
             pl.format("{}_{}", pl.col("label"), pl.col("snapshot")).alias(
                 "base_name"
             ),  # concatenate star name + snap name
@@ -188,7 +192,7 @@ if __name__ == "__main__":
 
     console.log(f"{len(filtered_tasks)} tasks to run; {all_tasks.height - len(filtered_tasks)} skipped.")
 
-    with Progress(console=console) as progress, MPIPoolExecutor() as executor:
+    with my_progress(console=console) as progress, MPIPoolExecutor() as executor:
         task_id = progress.add_task("Creating spheres", total=len(filtered_tasks))
         futures = [
             executor.submit(create_star_sphere, row, outpath, config.spheres.sp_radius, config.spheres.sp_radius_unit)

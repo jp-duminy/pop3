@@ -23,9 +23,13 @@ import numpy as np
 import yt
 from matplotlib.colors import LogNorm
 from mpi4py.futures import MPIPoolExecutor
-from rich.progress import Progress
 
-from ..utils import instantiate_logger, load_config, parse_args
+from ..utils import (
+    instantiate_logger,
+    load_config,
+    my_progress,
+    parse_args,
+)
 
 MNRAS_STYLE = Path.home() / "mnras.mplstyle"
 plt.style.use(MNRAS_STYLE)
@@ -343,7 +347,7 @@ if __name__ == "__main__":
 
     console.log(f"{len(filtered_tasks)} tasks to run; {len(all_tasks) - len(filtered_tasks)} skipped.")
 
-    with Progress(console=console) as progress, MPIPoolExecutor() as executor:
+    with my_progress(console=console) as progress, MPIPoolExecutor() as executor:
         task_id = progress.add_task("Making Profile Plots", total=len(filtered_tasks))
         futures = [executor.submit(process_sphere, task, config.plots.profile_plot_dir) for task in filtered_tasks]
 

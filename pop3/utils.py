@@ -12,6 +12,7 @@ from pathlib import Path
 import yt
 from rich.console import Console
 from rich.logging import RichHandler
+from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 from yaml import safe_load
 
 DEFAULT_CONFIG_PATH = Path(__file__).parent / "config.yaml"
@@ -178,3 +179,15 @@ def instantiate_logger() -> Console:
     )
 
     return console
+
+
+def my_progress(console: Console) -> Progress:
+    """
+    Modified rich progress bar.
+    """
+    return Progress(
+        SpinnerColumn(spinner_name="earth"),
+        *Progress.get_default_columns(),
+        TimeElapsedColumn(),
+        console=console,
+    )
