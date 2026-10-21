@@ -8,18 +8,16 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from numpy.random import Generator
-    from yt.data_objects.static_output import Dataset
     from unyt import unyt_array
+    from yt.data_objects.static_output import Dataset
 
-import numpy as np
 import healpy as hp
+import numpy as np
 
 SEED = 2317434
 
-def random_sample_sphere(
-    rng: Generator,
-    n_samples: int
-) -> tuple[np.ndarray, np.ndarray]:
+
+def random_sample_sphere(rng: Generator, n_samples: int) -> tuple[np.ndarray, np.ndarray]:
     """
     Randomly samples a sphere in (theta, phi), per https://mathworld.wolfram.com/SpherePointPicking.html. To evenly
     sample the sphere many samples may be necessary.
@@ -38,9 +36,7 @@ def random_sample_sphere(
     return theta, phi
 
 
-def uniform_sample_sphere(
-    n_side: int = 32
-) -> tuple[np.ndarray, np.ndarray]:
+def uniform_sample_sphere(n_side: int = 32) -> tuple[np.ndarray, np.ndarray]:
     """
     Uniformly samples the sphere in (theta, phi) via healpix (healpy). n_side must be a power of 2. Returns:
 
