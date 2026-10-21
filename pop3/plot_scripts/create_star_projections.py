@@ -5,26 +5,22 @@ by density) for requested stars. It is an expensive one, taking multiple hours f
 
 """
 
-
-import argparse
 import gc
 import logging
-from pathlib import Path
 from concurrent.futures import as_completed
+from pathlib import Path
 
 import polars as pl
 import yt
 from mpi4py.futures import MPIPoolExecutor
 from rich.progress import Progress
 
-from ..sim.pop3_ledger import select_stars, star_lifetime_summary, add_metallicity3
-from ..utils import instantiate_logger, parse_args, load_config
+from ..sim.pop3_ledger import add_metallicity3, select_stars, star_lifetime_summary
+from ..utils import instantiate_logger, load_config, parse_args
+
 
 def build_film_tasks(
-    ledger: pl.DataFrame, 
-    labels: list[str], 
-    post_sn_cutoff: float,
-    snapshot_dir: Path
+    ledger: pl.DataFrame, labels: list[str], post_sn_cutoff: float, snapshot_dir: Path
 ) -> pl.DataFrame:
     """
     Creates a dataframe containing the following info for making a film:
@@ -40,13 +36,21 @@ def build_film_tasks(
     tasks = (
         ledger.pipe(select_stars, labels)
         .join(star_lifetime_summary(ledger), on=["particle_indices", "label"])  # adds birth/death info
-        .filter(pl.col("current_time_myr") <= pl.col("first_dead_myr").fill_null(float("inf")) + post_sn_cutoff)  # filter to where we want to visualise
+        .filter(
+            pl.col("current_time_myr") <= pl.col("first_dead_myr").fill_null(float("inf")) + post_sn_cutoff
+        )  # filter to where we want to visualise
         .sort("particle_indices", "snapshot")  # time order
         .with_columns(  # add global plotting info
-            pl.col("positions_unitary").first().over("particle_indices").alias("centre_unitary"),  # position of star in its first snap
-            pl.format("{}/{}/{}", pl.lit(str(snapshot_dir)), pl.col("snapshot"), pl.col("snapshot"))  # concatenate directories
-                .alias("snapshot_path"),
-            pl.format("{}_{}", pl.col("label"), pl.col("snapshot")).alias("base_name"),  # concatenate star name + snap name
+            pl.col("positions_unitary")
+            .first()
+            .over("particle_indices")
+            .alias("centre_unitary"),  # position of star in its first snap
+            pl.format("{}/{}/{}", pl.lit(str(snapshot_dir)), pl.col("snapshot"), pl.col("snapshot")).alias(
+                "snapshot_path"
+            ),  # concatenate directories
+            pl.format("{}_{}", pl.col("label"), pl.col("snapshot")).alias(
+                "base_name"
+            ),  # concatenate star name + snap name
         )
         .select("particle_indices", "label", "snapshot_path", "centre_unitary", "base_name")
     )
@@ -59,9 +63,9 @@ def build_film_tasks(
 
 
 def project_star_snapshot(
-    row: dict[str, object], 
-    outpath: Path, 
-    width_kpc: float, 
+    row: dict[str, object],
+    outpath: Path,
+    width_kpc: float,
     axis: str = "x",
 ) -> Path:
     """
@@ -70,11 +74,7 @@ def project_star_snapshot(
     """
     yt.set_log_level("error")
 
-    fields = [
-        ("gas", "density"),
-        ("gas", "temperature"),
-        ("gas", "metallicity3")
-    ]
+    fields = [("gas", "density"), ("gas", "temperature"), ("gas", "metallicity3")]
     weight_field = ("gas", "density")
 
     ds = yt.load(row["snapshot_path"])
@@ -84,13 +84,10 @@ def project_star_snapshot(
     width = ds.quan(width_kpc, "kpc")
 
     # britton's dimensions
-    region = ds.box(centre - 1.05 * width / 2,
-            centre + 1.05 * width / 2)
+    region = ds.box(centre - 1.05 * width / 2, centre + 1.05 * width / 2)
 
-    p = yt.ProjectionPlot(
-        ds, axis, fields, weight_field=weight_field,
-        center=centre, width=width, data_source=region)
-    
+    p = yt.ProjectionPlot(ds, axis, fields, weight_field=weight_field, center=centre, width=width, data_source=region)
+
     data = {field[1]: p.frb[field] for field in fields}  # package the projection plot into a dict
 
     del p  # free up memory
@@ -105,8 +102,8 @@ def project_star_snapshot(
 
     return outpath
 
-if __name__ == "__main__":
 
+if __name__ == "__main__":
     args = parse_args()
     config = load_config(args)
 
@@ -116,7 +113,7 @@ if __name__ == "__main__":
     labels = config.stars.process_stars or star_lifetime_summary(ledger)["label"].to_list()
 
     all_tasks: pl.DataFrame = build_film_tasks(
-        ledger=ledger, 
+        ledger=ledger,
         labels=labels,
         post_sn_cutoff=config.plots.post_death,
         snapshot_dir=config.spheres.data_dir,
@@ -134,7 +131,7 @@ if __name__ == "__main__":
         if outpath.exists() and not args.force:
             continue
         filtered_tasks.append((row, outpath))
-    
+
     console.log(f"{len(filtered_tasks)} tasks to run; {all_tasks.height - len(filtered_tasks)} skipped.")
 
     # pool workers for film making in conjunction with task-based progress bar

@@ -1,0 +1,15 @@
+line-length = 120
+target-version = "py314"
+
+[format]
+docstring-code-format = true
+docstring-code-line-length = 70
+indent-style = "space"
+quote-style = "double"
+
+[lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "UP", "ANN", "NPY", "RUF"]
+ignore = ["ANN401"]
+
+[lint.per-file-ignores]
+"pop3/plot_scripts/create_star_film.py" = ["E402"]  # for the Agg use call

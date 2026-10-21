@@ -12,27 +12,26 @@ if TYPE_CHECKING:
     from matplotlib.text import Text
     from rich.console import Console
 
-from pathlib import Path
 import subprocess
-import argparse
-
-import yt
-import numpy as np
-import polars as pl
-from scipy.special import expit
-from rich.progress import Progress
-from mpi4py.futures import MPIPoolExecutor
-from mpi4py.MPI import COMM_WORLD
+from pathlib import Path
 
 import matplotlib
+import numpy as np
+import polars as pl
+import yt
+from mpi4py.futures import MPIPoolExecutor
+from mpi4py.MPI import COMM_WORLD
+from rich.progress import Progress
+from scipy.special import expit
+
 matplotlib.use("Agg")  # this has to be here (matplotlib is really user-friendly)
 import matplotlib.pyplot as plt
+import yt.visualization.color_maps
 from matplotlib.colors import LogNorm
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
-import yt.visualization.color_maps  # noqa: F401
 
-from ..utils import instantiate_logger, parse_args, load_config
-from ..sim.pop3_ledger import star_lifetime_summary, select_stars
+from ..sim.pop3_ledger import select_stars, star_lifetime_summary
+from ..utils import instantiate_logger, load_config, parse_args
 
 MPL_STYLE = Path.home() / "mnras.mplstyle"
 
@@ -58,7 +57,11 @@ def make_star_film(
     label: str = star["label"]
 
     paths, snapshot_times_myr, field_ranges, width_kpc = collect_projections(
-        console=console, executor=executor, image_dir=projections_root / label, label=label, axis=axis,
+        console=console,
+        executor=executor,
+        image_dir=projections_root / label,
+        label=label,
+        axis=axis,
     )
     field_ranges["metallicity3"] = (METALLICITY_FLOOR, field_ranges["metallicity3"][1])
 
@@ -69,7 +72,7 @@ def make_star_film(
         transition_time=transition_time_myr,
         cutoff_myr=snapshot_times_myr[-1],
         dt_min=0.01,  # NOTE: slightly increased from Britton's (0.15 is a bit patchy)
-        dt_max=0.25, 
+        dt_max=0.25,
         transition_rate=1.0,  # increased to make faster
     )
 
@@ -94,11 +97,12 @@ def make_star_film(
         framerate=framerate,
     )
 
+
 def build_frame_times(
     snapshot_times_myr: np.ndarray,
-    transition_time: float, 
-    dt_min: float, 
-    dt_max: float, 
+    transition_time: float,
+    dt_min: float,
+    dt_max: float,
     transition_rate: float,
     cutoff_myr: float,
 ) -> np.ndarray:
@@ -119,8 +123,8 @@ def build_frame_times(
 def collect_projections(
     console: Console,
     executor: MPIPoolExecutor,
-    image_dir: Path, 
-    label: str, 
+    image_dir: Path,
+    label: str,
     axis: str,
 ) -> tuple[list[Path], np.ndarray, dict[str, tuple[float, float]], float]:
     """
@@ -139,7 +143,7 @@ def collect_projections(
         task_id = progress.add_task("Collecting projection plots", total=len(projection_paths))
         results = []
         for result in executor.starmap(_scan_projection, ((path, field_names) for path in projection_paths)):
-            progress.advance(task_id) 
+            progress.advance(task_id)
             if result is not None:
                 results.append(result)
 
@@ -159,10 +163,12 @@ def collect_projections(
     return projection_paths, snapshot_times_myr, field_ranges, width_kpc
 
 
-def _scan_projection(projection_path: Path, field_names: tuple[str]) -> tuple[float, dict[str, float], dict[str, float]]:
+def _scan_projection(
+    projection_path: Path, field_names: tuple[str]
+) -> tuple[float, dict[str, float], dict[str, float]]:
     """
     For projection_path, reads:
-     
+
     - time_myr
     - field_mins: a dict for each field containing the min (NaN masked)
     """
@@ -192,11 +198,10 @@ def _load_log_fields(projection_path: Path, field_ranges: dict[str, tuple[float,
     log_fields: dict[str, np.ndarray] = {}
 
     for field in field_ranges:
-
         values = np.nan_to_num(ds.data["data", field].d, nan=field_ranges[field][0])  # clip NaNs to min
         np.clip(values, a_min=field_ranges[field][0], a_max=None, out=values)  # clip vals < min to min
         log_fields[field] = np.log10(values)
-        
+
     return log_fields
 
 
@@ -223,7 +228,9 @@ def _build_figure(
         cmap_name, cbar_label = FIELD_STYLES[field_name]
         image_handles[field_name] = field_axes.imshow(
             10 ** first_logs[field_name],
-            norm=LogNorm(*field_ranges[field_name]),  # tuple unpack into lognorm, handles colour log interp automatically 
+            norm=LogNorm(
+                *field_ranges[field_name]
+            ),  # tuple unpack into lognorm, handles colour log interp automatically
             cmap=cmap_name,
             origin="lower",
             interpolation="nearest",  # REVIEW: nearest produces nice output but could also consider other methods?
@@ -238,12 +245,12 @@ def _build_figure(
 
     n_pixels = first_logs["density"].shape[1]
 
-    # scale bar: NOTE: set to parsecs for now but if we need a bigger frame we can expand 
+    # scale bar: NOTE: set to parsecs for now but if we need a bigger frame we can expand
     scale_bar = AnchoredSizeBar(
         axes_by_field["density"].transData,  # put on density only, centred
         scale_bar_kpc / width_kpc * n_pixels,
         f"{scale_bar_kpc * 1000:.0f} pc",
-        "upper center",  
+        "upper center",
         color="white",
         frameon=False,
         sep=3.0,
@@ -251,7 +258,9 @@ def _build_figure(
     )
     axes_by_field["density"].add_artist(scale_bar)
 
-    age_text = fig.text(0.05, 0.05, "", color="white", fontsize=14, family="monospace")  # following Britton's aesthetic choices
+    age_text = fig.text(
+        0.05, 0.05, "", color="white", fontsize=14, family="monospace"
+    )  # following Britton's aesthetic choices
 
     return fig, image_handles, age_text
 
@@ -269,7 +278,7 @@ def _render_chunk(  # ugly function signature but necessary for parallelisation
     frame_dir: Path,
 ) -> None:
     """
-    Renders a chunk of frames with its own figure (the figures aren't pooled across processes). 
+    Renders a chunk of frames with its own figure (the figures aren't pooled across processes).
     Saves to the frame_dir.
     """
     if frame_indices.size == 0:
@@ -325,17 +334,37 @@ def render_frames(
     """
     assert frame_times_myr[0] >= creation_time_myr, "Creation time before first snapshot: check units."
 
-    lower_indices = np.searchsorted(snapshot_times_myr, frame_times_myr, side="right") - 1  # finds where sigmoid time intersects snapshot time
-    np.clip(lower_indices, a_min=0, a_max=len(snapshot_times_myr)-2, out=lower_indices)  # need -2 to avoid overshooting snapshot time
+    lower_indices = (
+        np.searchsorted(snapshot_times_myr, frame_times_myr, side="right") - 1
+    )  # finds where sigmoid time intersects snapshot time
+    np.clip(
+        lower_indices, a_min=0, a_max=len(snapshot_times_myr) - 2, out=lower_indices
+    )  # need -2 to avoid overshooting snapshot time
 
     n_workers = COMM_WORLD.Get_size() - 1  # one worker is the orchestrator
     frame_chunks = np.array_split(np.arange(len(frame_times_myr)), n_workers)  # give each worker a contiguous chunk
 
     # this call is hideous but performance is quite slow unless parallelised
-    list(executor.starmap(_render_chunk, ((
-        chunk, lower_indices, projection_paths, snapshot_times_myr, frame_times_myr,
-        field_ranges, creation_time_myr, width_kpc, scale_bar_kpc, frame_dir,
-    ) for chunk in frame_chunks)))  # list turns it into an iterator so results arrive before assembling the film
+    list(
+        executor.starmap(
+            _render_chunk,
+            (
+                (
+                    chunk,
+                    lower_indices,
+                    projection_paths,
+                    snapshot_times_myr,
+                    frame_times_myr,
+                    field_ranges,
+                    creation_time_myr,
+                    width_kpc,
+                    scale_bar_kpc,
+                    frame_dir,
+                )
+                for chunk in frame_chunks
+            ),
+        )
+    )  # list turns it into an iterator so results arrive before assembling the film
 
 
 def assemble_film(frame_dir: Path, output_path: Path, framerate: int) -> None:
@@ -343,24 +372,29 @@ def assemble_film(frame_dir: Path, output_path: Path, framerate: int) -> None:
     Assemble the frames together into a film as per Britton's recommended command.
     """
     subprocess.run(
-        ["ffmpeg", 
-         "-y", 
-         "-framerate", str(framerate),  # needs every arg as a str or error
-        "-i", str(frame_dir / "frame_%04d.png"),
-        "-vcodec", "libx264", 
-        "-vf", "scale=1280:-2,format=yuv420p",
-        str(output_path)],
+        [
+            "ffmpeg",
+            "-y",
+            "-framerate",
+            str(framerate),  # needs every arg as a str or error
+            "-i",
+            str(frame_dir / "frame_%04d.png"),
+            "-vcodec",
+            "libx264",
+            "-vf",
+            "scale=1280:-2,format=yuv420p",
+            str(output_path),
+        ],
         check=True,
     )
 
 
 if __name__ == "__main__":
-
     args = parse_args()
     config = load_config(args)
     console = instantiate_logger()
     ledger: pl.DataFrame = pl.read_parquet(config.stars.ledger_path)
-    summaries = star_lifetime_summary(ledger=ledger) 
+    summaries = star_lifetime_summary(ledger=ledger)
 
     labels = config.stars.process_stars or [path.name for path in config.plots.proj_dir.iterdir() if path.is_dir()]
 
@@ -369,12 +403,11 @@ if __name__ == "__main__":
             make_star_film(
                 console=console,
                 executor=executor,
-                star=star, 
-                projections_root=config.plots.proj_dir, 
-                frame_dir=config.plots.frame_dir, 
+                star=star,
+                projections_root=config.plots.proj_dir,
+                frame_dir=config.plots.frame_dir,
                 film_dir=config.plots.film_dir,
-                axis=config.plots.axis, 
+                axis=config.plots.axis,
                 framerate=config.plots.framerate,
             )
             console.log(f"Finished film for {star['label']}.")
-

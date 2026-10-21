@@ -8,30 +8,26 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from yt.data_objects.static_output import Dataset
-    from rich.console import Console
 
-import argparse
 import gc
-from pathlib import Path
 from concurrent.futures import as_completed
+from pathlib import Path
 
+import numpy as np
 import polars as pl
 import yt
-import numpy as np
-from scipy.optimize import brentq
 from mpi4py.futures import MPIPoolExecutor
 from rich.progress import Progress
+from scipy.optimize import brentq
 
-from ..sim.pop3_ledger import select_stars, star_lifetime_summary, add_metallicity3
-from ..utils import instantiate_logger, parse_args, load_config
+from ..sim.pop3_ledger import add_metallicity3, select_stars, star_lifetime_summary
+from ..utils import instantiate_logger, load_config, parse_args
 
 SPHERE_FIELDS = [
-
     # basic gas fields
     ("gas", "density"),
     ("gas", "temperature"),
     ("gas", "metallicity3"),
-
     # number densities
     ("gas", "H_p0_number_density"),
     ("gas", "H_p1_number_density"),
@@ -41,15 +37,13 @@ SPHERE_FIELDS = [
     ("gas", "He_p1_number_density"),
     ("gas", "He_p2_number_density"),
     ("gas", "El_number_density"),  # electron number density
-
     # ionisation rates
     ("gas", "H_p0_ionization_rate"),
     ("gas", "He_p0_ionization_rate"),
     ("gas", "He_p1_ionization_rate"),
     ("gas", "photo_gamma"),
-    ("gas", "cell_volume"), 
+    ("gas", "cell_volume"),
     ("gas", "cell_mass"),
-
     # place in raw snapshot
     ("index", "x"),
     ("index", "y"),
@@ -57,11 +51,8 @@ SPHERE_FIELDS = [
     ("index", "radius"),  # needed for profiles as the grid hierarchy gets flattened
 ]
 
-def build_sphere_tasks(
-    ledger: pl.DataFrame, 
-    labels: list[str], 
-    snapshot_dir: Path
-) -> pl.DataFrame:
+
+def build_sphere_tasks(ledger: pl.DataFrame, labels: list[str], snapshot_dir: Path) -> pl.DataFrame:
     """
     Reduces the ledger to only the selected stars and their lifetimes.
     """
@@ -71,9 +62,12 @@ def build_sphere_tasks(
         .filter(pl.col("current_time_myr") <= pl.col("first_dead_myr").fill_null(float("inf")))
         .sort("particle_indices", "snapshot")  # time order
         .with_columns(  # add directory info for loading & saving
-            pl.format("{}/{}/{}", pl.lit(str(snapshot_dir)), pl.col("snapshot"), pl.col("snapshot"))  # concatenate directories
-                .alias("snapshot_path"),
-            pl.format("{}_{}", pl.col("label"), pl.col("snapshot")).alias("base_name"),  # concatenate star name + snap name
+            pl.format(
+                "{}/{}/{}", pl.lit(str(snapshot_dir)), pl.col("snapshot"), pl.col("snapshot")
+            ).alias("snapshot_path"),  # concatenate directories
+            pl.format("{}_{}", pl.col("label"), pl.col("snapshot")).alias(
+                "base_name"
+            ),  # concatenate star name + snap name
         )
     )
 
@@ -81,9 +75,9 @@ def build_sphere_tasks(
 
 
 def create_star_sphere(
-    row: dict[str, object], 
-    outpath: Path, 
-    radius: float, 
+    row: dict[str, object],
+    outpath: Path,
+    radius: float,
     radius_unit: str,
 ) -> Path:
     """
@@ -108,10 +102,7 @@ def create_star_sphere(
     return outpath
 
 
-def compute_hii_region_size(
-    sp: Dataset,
-    root_constant: float = 0.5
-) -> Dataset:
+def compute_hii_region_size(sp: Dataset, root_constant: float = 0.5) -> Dataset:
     """
     Reformulates the ionisation densities into a root finding problem in fHII and applies the Brent
     method to calculate the size of the HII region. Returns new sphere.
@@ -139,10 +130,14 @@ def compute_hii_region_size(
     assert f_hii[-1] <= root_constant, f"Ionisation front lies beyond initial sphere radius {bracket_b}"
 
     ionisation_front = brentq(
-        _ionised_frac, 
+        _ionised_frac,
         a=bracket_a.d,
         b=bracket_b.d,
-        args=(shell_radii.d, f_hii.d, root_constant,)  # args for interp
+        args=(
+            shell_radii.d,
+            f_hii.d,
+            root_constant,
+        ),  # args for interp
     )
 
     radius = sp.ds.quan(ionisation_front, "kpc")
@@ -162,8 +157,8 @@ def _ionised_frac(
     """
     return np.interp(radius, shell_radii, shell_f_hii) - root_constant
 
-if __name__ == "__main__":
 
+if __name__ == "__main__":
     args = parse_args()
     config = load_config(args)
 
@@ -173,7 +168,7 @@ if __name__ == "__main__":
     labels = config.stars.process_stars or star_lifetime_summary(ledger)["label"].to_list()
 
     all_tasks: pl.DataFrame = build_sphere_tasks(
-        ledger=ledger, 
+        ledger=ledger,
         labels=labels,
         snapshot_dir=config.spheres.data_dir,
     )
