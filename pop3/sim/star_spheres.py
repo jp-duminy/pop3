@@ -23,7 +23,7 @@ from mpi4py.futures import MPIPoolExecutor
 from rich.progress import Progress
 
 from ..sim.pop3_ledger import select_stars, star_lifetime_summary, add_metallicity3
-from ..utils import common_parser, instantiate_logger, DATA_DIR
+from ..utils import instantiate_logger, parse_args, load_config
 
 SPHERE_FIELDS = [
 
@@ -80,37 +80,11 @@ def build_sphere_tasks(
     return tasks
 
 
-def parse_args() -> argparse.Namespace:
-    """
-    Parses the command-line arguments; returns the corresponding Namespace object.
-    """
-    parser = argparse.ArgumentParser(
-        parents=[common_parser()],
-        prog="star-spheres",
-        description="Routine for collecting yt spheres around specified Pop3 stars.",
-        suggest_on_error=True,
-    )
-    parser.add_argument(
-        "-r",
-        "--radius",
-        type=float,
-        default=1.0,
-        help="Fixed radius of spheres (kpc)."
-    )
-    parser.add_argument(
-        "-f",
-        "--force",
-        action="store_true",
-        help="Overwrites existing data files."
-    )
-
-    return parser.parse_args()
-
-
 def create_star_sphere(
     row: dict[str, object], 
     outpath: Path, 
-    radius_kpc: float, 
+    radius: float, 
+    radius_unit: str,
 ) -> Path:
     """
     Generates a sphere of specified radius_kpc to outpath, and stores the fields
@@ -122,7 +96,7 @@ def create_star_sphere(
     add_metallicity3(ds=ds)
 
     centre = ds.arr(row["positions_unitary"], "unitary")
-    radius = ds.quan(radius_kpc, "kpc")
+    radius = ds.quan(radius, radius_unit)
 
     sp = ds.sphere(centre, radius)
     sp.get_data(SPHERE_FIELDS)  # faster to use get_data so all queries are done in one pass then stored on the sphere
@@ -191,28 +165,28 @@ def _ionised_frac(
 if __name__ == "__main__":
 
     args = parse_args()
-    outdir: Path = args.outdir
+    config = load_config(args)
 
     console = instantiate_logger()
 
-    ledger = pl.read_parquet(args.ledger)
-    labels = args.stars or star_lifetime_summary(ledger)["label"].to_list()
+    ledger = pl.read_parquet(config.stars.ledger_path)
+    labels = config.stars.process_stars or star_lifetime_summary(ledger)["label"].to_list()
 
     all_tasks: pl.DataFrame = build_sphere_tasks(
         ledger=ledger, 
         labels=labels,
-        snapshot_dir=DATA_DIR,
+        snapshot_dir=config.spheres.data_dir,
     )
 
     # make a directory for each requested star
     for label in all_tasks["label"].unique():
-        (outdir / label).mkdir(parents=True, exist_ok=True)
+        (config.spheres.sp_dir / label).mkdir(parents=True, exist_ok=True)
 
     # reduce tasks if the outputs already exist
     filtered_tasks: list[tuple[dict[str, object], Path]] = []
 
     for row in all_tasks.iter_rows(named=True):
-        outpath = outdir / row["label"] / f"{row['base_name']}.h5"
+        outpath = config.spheres.sp_dir / row["label"] / f"{row['base_name']}.h5"
         if outpath.exists() and not args.force:
             continue
         filtered_tasks.append((row, outpath))
@@ -222,7 +196,7 @@ if __name__ == "__main__":
     with Progress(console=console) as progress, MPIPoolExecutor() as executor:
         task_id = progress.add_task("Creating spheres", total=len(filtered_tasks))
         futures = [
-            executor.submit(create_star_sphere, row, outpath, args.radius)
+            executor.submit(create_star_sphere, row, outpath, config.spheres.sp_radius, config.spheres.sp_radius_unit)
             for row, outpath in filtered_tasks
         ]
 

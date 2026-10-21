@@ -31,7 +31,7 @@ from matplotlib.colors import LogNorm
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 import yt.visualization.color_maps  # noqa: F401
 
-from ..utils import instantiate_logger, common_parser
+from ..utils import instantiate_logger, parse_args, load_config
 from ..sim.pop3_ledger import star_lifetime_summary, select_stars
 
 MPL_STYLE = Path.home() / "mnras.mplstyle"
@@ -44,47 +44,14 @@ FIELD_STYLES: dict[str, tuple[str, str]] = {
 
 METALLICITY_FLOOR = 1e-8
 
-def parse_args() -> argparse.Namespace:
-    """
-    Parses the command-line arguments; returns the corresponding Namespace object.
-    """
-    parser = argparse.ArgumentParser(
-        parents=[common_parser()],
-        prog="star-film",
-        description="Routine for converting star projection plots into film.",
-        suggest_on_error=True,
-    )
-    parser.add_argument(
-        "-p",
-        "--projdir",
-        type=Path,
-        required=True,
-        help="Path to projection plots."
-    )
-    parser.add_argument(
-        "-a",
-        "--axis",
-        type=str,
-        default="x",
-        help="Axis used for projections."
-    )
-    parser.add_argument(
-        "-f",
-        "--framerate",
-        type=int,
-        default=60,
-        help="Framerate for the films."
-    )
-
-    return parser.parse_args()
-
 
 def make_star_film(
     console: Console,
     executor: MPIPoolExecutor,
     star: dict[str, Any],  # comes from dataframe iters
     projections_root: Path,
-    plots_root: Path,
+    frame_dir: Path,
+    film_dir: Path,
     axis: str,
     framerate: int,
 ) -> None:
@@ -106,9 +73,9 @@ def make_star_film(
         transition_rate=1.0,  # increased to make faster
     )
 
-    frame_dir = plots_root / "frames" / label
-    frame_dir.mkdir(parents=True, exist_ok=True)
-    [f.unlink() for f in frame_dir.glob("*") if f.is_file()]
+    star_frame_dir = frame_dir / label
+    star_frame_dir.mkdir(parents=True, exist_ok=True)
+    [f.unlink() for f in star_frame_dir.glob("*") if f.is_file()]
 
     render_frames(
         executor=executor,
@@ -118,12 +85,12 @@ def make_star_film(
         field_ranges=field_ranges,
         creation_time_myr=star["creation_times_myr"],
         width_kpc=width_kpc,
-        frame_dir=frame_dir,
+        frame_dir=star_frame_dir,
     )
 
     assemble_film(
-        frame_dir=frame_dir,
-        output_path=plots_root / f"{label}_{axis}.mp4",
+        frame_dir=star_frame_dir,
+        output_path=film_dir / f"{label}_{axis}.mp4",
         framerate=framerate,
     )
 
@@ -390,12 +357,12 @@ def assemble_film(frame_dir: Path, output_path: Path, framerate: int) -> None:
 if __name__ == "__main__":
 
     args = parse_args()
+    config = load_config(args)
     console = instantiate_logger()
-    ledger: pl.DataFrame = pl.read_parquet(args.ledger)
+    ledger: pl.DataFrame = pl.read_parquet(config.stars.ledger_path)
     summaries = star_lifetime_summary(ledger=ledger) 
 
-    projection_dir: Path = args.projdir
-    labels = args.stars or [path.name for path in projection_dir.iterdir() if path.is_dir()]
+    labels = config.stars.process_stars or [path.name for path in config.plots.proj_dir.iterdir() if path.is_dir()]
 
     with MPIPoolExecutor() as executor:
         for star in summaries.pipe(select_stars, labels).iter_rows(named=True):
@@ -403,10 +370,11 @@ if __name__ == "__main__":
                 console=console,
                 executor=executor,
                 star=star, 
-                projections_root=args.projdir, 
-                plots_root=args.outdir, 
-                axis=args.axis, 
-                framerate=args.framerate
+                projections_root=config.plots.proj_dir, 
+                frame_dir=config.plots.frame_dir, 
+                film_dir=config.plots.film_dir,
+                axis=config.plots.axis, 
+                framerate=config.plots.framerate,
             )
             console.log(f"Finished film for {star['label']}.")
 

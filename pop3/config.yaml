@@ -1,0 +1,26 @@
+# configuration file for params
+
+cloudy:
+  cloudy_path: ~/astro_builds/cloudy
+
+spheres:
+  sp_dir: ~/mphys/data/spheres
+  data_dir: /cephfs2/brs/pop2-prime/cc_512_no_dust_continue
+  sp_radius: 1.0
+  sp_radius_unit: "kpc"
+
+stars:
+  ledger_path: ~/mphys/data/pop3_ledger.parquet
+  process_stars: ["POP3-240", "POP3-379"]
+  max_metallicity: 1.0e-4
+
+plots:
+  proj_dir: ~/mphys/data/projections
+  frame_dir: ~/mphys/plots/frames
+  profile_plot_dir: ~/mphys/plots/profiles
+  film_dir: ~/mphys/plots/films
+  axis: "x"
+  framerate: 60
+  frame_width: 1.5  # kpc
+  post_death: 125.0  # Myr
+

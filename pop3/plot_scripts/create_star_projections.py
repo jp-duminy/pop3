@@ -18,7 +18,7 @@ from mpi4py.futures import MPIPoolExecutor
 from rich.progress import Progress
 
 from ..sim.pop3_ledger import select_stars, star_lifetime_summary, add_metallicity3
-from ..utils import common_parser, instantiate_logger, DATA_DIR
+from ..utils import instantiate_logger, parse_args, load_config
 
 def build_film_tasks(
     ledger: pl.DataFrame, 
@@ -57,45 +57,6 @@ def build_film_tasks(
 
     return tasks
 
-def parse_args() -> argparse.Namespace:
-    """
-    Parses the command-line arguments; returns the corresponding Namespace object.
-    """
-    parser = argparse.ArgumentParser(
-        parents=[common_parser()],
-        prog="star-plot",
-        description="Routine for making a plot of stars' lifetimes across the Pop2Prime simulation.",
-        suggest_on_error=True,
-    )
-    parser.add_argument(
-        "-w",
-        "--width",
-        type=float,
-        default=1.5,
-        help="Width of each panel in kpc."
-    )
-    parser.add_argument(
-        "-a",
-        "--axis",
-        type=str,
-        default="x",
-        help="Axis to project onto."
-    )
-    parser.add_argument(
-        "-f",
-        "--force",
-        action="store_true",
-        help="Overwrites existing data files."
-    )
-    parser.add_argument(
-        "-p",
-        "--postdeath",
-        type=float,
-        default=125,
-        help="Myr past death for which plots should be made."
-    )
-
-    return parser.parse_args()
 
 def project_star_snapshot(
     row: dict[str, object], 
@@ -147,29 +108,29 @@ def project_star_snapshot(
 if __name__ == "__main__":
 
     args = parse_args()
-    outdir: Path = args.outdir
+    config = load_config(args)
 
     console = instantiate_logger()
 
-    ledger = pl.read_parquet(args.ledger)
-    labels = args.stars or star_lifetime_summary(ledger)["label"].to_list()
+    ledger = pl.read_parquet(config.stars.ledger_path)
+    labels = config.stars.process_stars or star_lifetime_summary(ledger)["label"].to_list()
 
     all_tasks: pl.DataFrame = build_film_tasks(
         ledger=ledger, 
         labels=labels,
-        post_sn_cutoff=args.postdeath,
-        snapshot_dir=DATA_DIR
+        post_sn_cutoff=config.plots.post_death,
+        snapshot_dir=config.spheres.data_dir,
     )
 
     # make a directory for each requested star
     for label in all_tasks["label"].unique():
-        (outdir / label).mkdir(parents=True, exist_ok=True)
+        (config.plots.proj_dir / label).mkdir(parents=True, exist_ok=True)
 
     # reduce tasks if the outputs already exist
     filtered_tasks: list[tuple[dict[str, object], Path]] = []
 
     for row in all_tasks.iter_rows(named=True):
-        outpath = outdir / row["label"] / f"{row['base_name']}_{args.axis}.h5"
+        outpath = config.plots.proj_dir / row["label"] / f"{row['base_name']}_{config.plots.axis}.h5"
         if outpath.exists() and not args.force:
             continue
         filtered_tasks.append((row, outpath))
@@ -180,7 +141,7 @@ if __name__ == "__main__":
     with Progress(console=console) as progress, MPIPoolExecutor() as executor:
         task_id = progress.add_task("Projecting", total=len(filtered_tasks))
         futures = [
-            executor.submit(project_star_snapshot, row, outpath, args.width, args.axis)
+            executor.submit(project_star_snapshot, row, outpath, config.plots.frame_width, config.plots.axis)
             for row, outpath in filtered_tasks
         ]
 

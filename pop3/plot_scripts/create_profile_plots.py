@@ -26,7 +26,7 @@ from matplotlib.colors import LogNorm
 from mpi4py.futures import MPIPoolExecutor
 from rich.progress import Progress
 
-from ..utils import common_parser, instantiate_logger
+from ..utils import instantiate_logger, parse_args, load_config
 
 MNRAS_STYLE = Path.home() / "mnras.mplstyle"
 plt.style.use(MNRAS_STYLE)
@@ -53,39 +53,6 @@ LABELS: dict[str, str] = {
     "radius": r"$R\ [\mathrm{cm}]$"
 }
 
-def parse_args() -> argparse.Namespace:
-    """
-    Parses the command-line arguments; returns the corresponding Namespace object.
-    """
-    parser = argparse.ArgumentParser(
-        parents=[common_parser()],
-        prog="star-profiles",
-        description="Routine for making diagnostic plots of stars across their lifetimes.",
-        suggest_on_error=True,
-    )
-    parser.add_argument(
-        "-sp",
-        "--spheres",
-        type=Path, 
-        default=Path.home() / "mphys" / "data" / "spheres", 
-        help="Path to sphere directory."
-    )
-    parser.add_argument(
-        "-pd",
-        "--profiledir",
-        type=Path, 
-        required=False,
-        help="(Optional) path to profile directory for saving intermediates."
-    )
-    parser.add_argument(
-        "-f",
-        "--force",
-        action="store_true",
-        help="Overwrites existing figures."
-    )
-
-    return parser.parse_args()
-
 
 class SphereTask(NamedTuple):
     """
@@ -100,7 +67,7 @@ class SphereTask(NamedTuple):
     sphere_path: Path
 
 
-def process_sphere(task: SphereTask, outdir: Path, profile_root_dir: Path | None = None) -> str:
+def process_sphere(task: SphereTask, outdir: Path) -> str:
     """
     Takes a snapshot sphere and produces profiles and plots.
     """
@@ -110,14 +77,11 @@ def process_sphere(task: SphereTask, outdir: Path, profile_root_dir: Path | None
     # a lot of tedious directory making
     task_outdir = outdir / task.label / task.snapshot
     task_outdir.mkdir(parents=True, exist_ok=True)
-    profile_dir = profile_root_dir / task.label / task.snapshot if profile_root_dir is not None else None
-    if profile_dir is not None:
-        profile_dir.mkdir(parents=True, exist_ok=True)
 
     # both profiles can reuse the same function
     with plt.rc_context({"figure.figsize": (7.0, 7.4)}):
     
-        radial_profiles = build_profiles(sp_ds, field_pairs=RADIAL_FIELDS, save_dir=profile_dir)
+        radial_profiles = build_profiles(sp_ds, field_pairs=RADIAL_FIELDS)
         plot_radial_figure(
             profiles=radial_profiles, 
             title=f"Radial Profiles for {task.label} at z = {sp_ds.current_redshift:.2f}",
@@ -127,7 +91,7 @@ def process_sphere(task: SphereTask, outdir: Path, profile_root_dir: Path | None
     gc.collect()
 
     with plt.rc_context({"figure.figsize": (7.0, 2.6)}):
-        phase_profiles = build_profiles(sp_ds,field_pairs=PHASE_FIELDS, save_dir=profile_dir)
+        phase_profiles = build_profiles(sp_ds,field_pairs=PHASE_FIELDS)
         plot_phase_figure(
             profiles=phase_profiles, 
             title=f"Phase Profiles for {task.label} at z = {sp_ds.current_redshift:.2f}",
@@ -157,7 +121,6 @@ def build_plot_tasks(spheres_dir: Path, labels: list[str]) -> list[SphereTask]:
 def build_profiles(
     sp_ds: Dataset, 
     field_pairs: list[tuple[tuple[str, str], tuple[str, str]]], 
-    save_dir: Path | None = None
 ) -> dict[str, ProfileND]:
     """
     Constructs radial profiles for requested fields, weighted by cell mass as per Britton. 
@@ -187,8 +150,6 @@ def build_profiles(
         name = f"{x_field[1]}_{y_field[1]}"
 
         profiles[name] = profile
-        if save_dir is not None:
-            profile.save_as_dataset(save_dir / f"{name}_profile.h5")
 
     return profiles
 
@@ -363,19 +324,19 @@ def _profile_quantiles(
 if __name__ == "__main__":
 
     args = parse_args()
+    config = load_config(args)
     console = instantiate_logger()
     yt.set_log_level("error")
 
-    outdir: Path = args.outdir
     all_tasks = build_plot_tasks(
-        spheres_dir=args.spheres,
-        labels=args.stars,
+        spheres_dir=config.spheres.sp_dir,
+        labels=config.stars.process_stars,
     )
 
     filtered_tasks: list[SphereTask] = []
 
     for sphere in all_tasks:
-        outpath = outdir / sphere.label / sphere.snapshot
+        outpath = config.plots.profile_plot_dir / sphere.label / sphere.snapshot
         if outpath.exists() and not args.force:
             continue
         filtered_tasks.append(SphereTask(
@@ -386,7 +347,7 @@ if __name__ == "__main__":
 
     with Progress(console=console) as progress, MPIPoolExecutor() as executor:
         task_id = progress.add_task("Making Profile Plots", total=len(filtered_tasks))
-        futures = [executor.submit(process_sphere, task, outdir, args.profiledir) for task in filtered_tasks]
+        futures = [executor.submit(process_sphere, task, config.plots.profile_plot_dir) for task in filtered_tasks]
 
         for future in as_completed(futures):
             console.log(f"Done {future.result()}")

@@ -22,7 +22,7 @@ import polars as pl
 from mpi4py.futures import MPIPoolExecutor
 from rich.progress import Progress
 
-from ..utils import instantiate_logger, common_parser, DATA_DIR
+from ..utils import instantiate_logger, parse_args, load_config
 
 FIELD_MAP = {
     "positions_unitary": ("particle_position", "unitary"),
@@ -33,27 +33,6 @@ FIELD_MAP = {
     "creation_times_myr": ("creation_time", "Myr"),
 }
 MIN_SEP_MYR = 1e-3  # to filter Enzo's invasive star population
-
-
-def parse_args() -> argparse.Namespace:
-    """
-    Parses the command-line arguments; returns the corresponding Namespace object.
-    """
-    parser = argparse.ArgumentParser(
-        parents=[common_parser()],
-        prog="pop3-ledger",
-        description="Creates the POP3 ledger.",
-        suggest_on_error=True,
-    )
-    parser.add_argument(
-        "-m",
-        "--metal",
-        type=float,
-        default=1e-10,
-        help="Maximum metallicity for a Pop3 star."
-    )
-
-    return parser.parse_args()
 
 def age_myr() -> pl.Expr:
     """
@@ -201,18 +180,16 @@ if __name__ == "__main__":
     """
     Constructs the Pop3 ledger.
     """
-
     yt.set_log_level("warning")  # avoids lots of verbose output
-    args = parse_args()
-    parquet_path = args.outdir / "pop3_ledger.parquet"
+    config = load_config(parse_args())
     console = instantiate_logger()
 
-    snapshot_paths = sorted((DATA_DIR / "pop3").glob(pattern="DD*.h5"))  # sort; futures preserves order when writing to list
+    snapshot_paths = sorted((config.spheres.data_dir / "pop3").glob(pattern="DD*.h5"))  # sort; futures preserves order when writing to list
 
     with Progress(console=console) as progress, MPIPoolExecutor() as executor:
 
         task_id = progress.add_task("Making Pop3 Ledger", total=len(snapshot_paths))
-        task_args = ((path, args.metal, FIELD_MAP) for path in snapshot_paths)
+        task_args = ((path, config.stars.max_metallicity, FIELD_MAP) for path in snapshot_paths)
 
         frame_list: list[pl.DataFrame] = []
 
@@ -235,6 +212,6 @@ if __name__ == "__main__":
         )
         console.log(df_diagnostic)
 
-    ledger.write_parquet(parquet_path)
-    console.log(f"Wrote parquet file at {parquet_path}")
+    ledger.write_parquet(config.stars.ledger_path)
+    console.log(f"Wrote parquet file at {config.stars.ledger_path}")
  
