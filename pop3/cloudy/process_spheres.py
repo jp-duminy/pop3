@@ -71,7 +71,7 @@ def extract_sightline(
 ) -> tuple[tuple[unyt_array, ...], unyt_array]:
     """
     Extracts spatially-ordered arrays from the centre of a sphere dataset to the point specified by `coords` (a point offset from
-    the origin of the sphere). This is done by casting a `yt` ray. `coords` should be in Cartesian and CGS. All fields specified by `fields` will be extracted.
+    the origin of the sphere). This is done by casting a `yt` ray. `coords` should be in Cartesian. All fields specified by `fields` will be extracted.
     Returns:
 
     - arrays: a tuple of arrays, one for each field.
