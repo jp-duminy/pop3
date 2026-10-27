@@ -5,6 +5,7 @@ Dataclasses which represent Cloudy commands and can write directly to a .in file
 """
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -85,3 +86,79 @@ class TlawTable:
         cmd = f"tlaw table depth\n{rows}\nend of tlaw"
 
         return cmd
+
+
+@dataclass(frozen=True, slots=True)
+class Background:
+    """
+    Controls the two basic background commands. Accepts:
+
+    - redshift: for CMB
+    - use_cosmic_rays: enables the cosmic rays flag (Cloudy tells me I'm making a big mistake without this...)
+    """
+
+    redshift: float
+    use_cosmic_rays: bool = True
+
+    def __str__(self) -> str:
+        """
+        Turns the str(Background) into its representation ready for a .in file.
+        """
+        lines = [f"CMB redshift {self.redshift}"]
+
+        if self.use_cosmic_rays:
+            lines.append("cosmic rays background")
+
+        cmd = "\n".join(lines)
+
+        return cmd
+
+
+@dataclass(frozen=True, slots=True)
+class Blackbody:
+    """
+    Controls the `blackbody` SED command. Accepts:
+
+    - log_temperature
+    """
+
+    log_temperature: float
+
+    def __str__(self) -> str:
+        """
+        Turns the str(Blackbody) into its representation ready for a .in file.
+        """
+        return f"blackbody log {self.log_temperature:.6f}"
+
+
+@dataclass(frozen=True, slots=True)
+class TableSED:
+    """
+    Controls the specified `table SED` command. Accepts:
+
+    - sed_path
+    """
+
+    sed_path: Path
+
+    def __str__(self) -> str:
+        """
+        Turns the str(TableSED) into its representation ready for a .in file.
+        """
+        return f'table SED "{self.sed_path}"'
+
+
+@dataclass(frozen=True, slots=True)
+class RadSource:
+    """
+    Controls the input SED, accepting either a blackbody or table.
+    """
+
+    shape: Blackbody | TableSED
+    log_q_hydrogen: float
+
+    def __str__(self) -> str:
+        """
+        Turns the str(RadSource) into its representation ready for a .in file.
+        """
+        return "\n".join([str(self.shape), f"q(h) {self.log_q_hydrogen:.6f}"])
