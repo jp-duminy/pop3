@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-HAZY_FLOOR = 1e-30  # min distance which Cloudy accepts
+HAZY_FLOOR = 1e-35  # min distance which Cloudy accepts
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,3 +162,40 @@ class RadSource:
         Turns the str(RadSource) into its representation ready for a .in file.
         """
         return "\n".join([str(self.shape), f"q(h) {self.log_q_hydrogen:.6f}"])
+
+
+@dataclass(frozen=True, slots=True)
+class StopElectronFrac:
+    """
+    Controls the electron fraction stopping criterion `efrac`.
+    """
+
+    electron_frac: float
+
+    def __post_init__(self) -> None:
+
+        if self.electron_frac <= 0.0:
+            raise ValueError("electron_frac must be a fraction above 0.0")
+
+    def __str__(self) -> str:
+        """
+        Turns str(StopElectronFrac) into its representation ready for a .in file.
+        """
+        return f"stop efrac {self.electron_frac:.6f}"
+
+
+@dataclass(frozen=True, slots=True)
+class SphereGeometry:
+    """
+    Spherical (closed) geometry assuming a point source, like our PopIII stars are.
+    """
+
+    log_inner_radius: float  # let's say first cell from the star
+
+    def __str__(self) -> str:
+        """
+        Turns str(SphereGeometry) into its representation ready for a .in file.
+        """
+        return "\n".join(
+            [f"radius {self.log_inner_radius:.6f}", "sphere expanding"]
+        )  # TODO: investigate spherical geometry
