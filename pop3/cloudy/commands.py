@@ -36,9 +36,7 @@ class DlawTable:
             )
 
     def __str__(self) -> str:
-        """
-        Turns the str(DlawTable) into its representation ready for a .in file.
-        """
+
         rows = "\n".join(
             f"continue {depth:.6f} {density:.6f}"  # 6 sig figs should be ok
             for depth, density in zip(
@@ -74,9 +72,7 @@ class TlawTable:
             )
 
     def __str__(self) -> str:
-        """
-        Turns the str(TlawTable) into its representation ready for a .in file.
-        """
+
         rows = "\n".join(
             f"continue {depth:.6f} {temp:.6f}"  # 6 sig figs should be ok
             for depth, temp in zip(
@@ -101,9 +97,7 @@ class Background:
     use_cosmic_rays: bool = True
 
     def __str__(self) -> str:
-        """
-        Turns the str(Background) into its representation ready for a .in file.
-        """
+
         lines = [f"CMB redshift {self.redshift}"]
 
         if self.use_cosmic_rays:
@@ -125,9 +119,7 @@ class Blackbody:
     log_temperature: float
 
     def __str__(self) -> str:
-        """
-        Turns the str(Blackbody) into its representation ready for a .in file.
-        """
+
         return f"blackbody log {self.log_temperature:.6f}"
 
 
@@ -142,9 +134,7 @@ class TableSED:
     sed_path: Path
 
     def __str__(self) -> str:
-        """
-        Turns the str(TableSED) into its representation ready for a .in file.
-        """
+
         return f'table SED "{self.sed_path}"'
 
 
@@ -158,9 +148,7 @@ class RadSource:
     log_q_hydrogen: float
 
     def __str__(self) -> str:
-        """
-        Turns the str(RadSource) into its representation ready for a .in file.
-        """
+
         return "\n".join([str(self.shape), f"q(h) {self.log_q_hydrogen:.6f}"])
 
 
@@ -178,9 +166,7 @@ class StopElectronFrac:
             raise ValueError("electron_frac must be a fraction above 0.0")
 
     def __str__(self) -> str:
-        """
-        Turns str(StopElectronFrac) into its representation ready for a .in file.
-        """
+
         return f"stop efrac {self.electron_frac:.6f}"
 
 
@@ -193,9 +179,29 @@ class SphereGeometry:
     log_inner_radius: float  # let's say first cell from the star
 
     def __str__(self) -> str:
-        """
-        Turns str(SphereGeometry) into its representation ready for a .in file.
-        """
         return "\n".join(
             [f"radius {self.log_inner_radius:.6f}", "sphere expanding"]
         )  # TODO: investigate spherical geometry
+
+
+@dataclass(frozen=True, slots=True)
+class ElementTable:
+    """
+    Controls the element table command.
+
+    `element <name> table depth`
+    """
+
+    element_name: str  # use .to_uppercase() per Cloudy's own .abn tables
+    log_path_lengths: np.ndarray
+    log_abundances: np.ndarray
+
+    def __str__(self) -> str:
+
+        rows = "\n".join(
+            f"{depth:.6f} {abundance:.6f}"
+            for depth, abundance in zip(self.log_path_lengths, self.log_abundances, strict=True)
+        )
+        cmd = f"element {self.element_name} table depth\n{rows}\nend of table"
+
+        return cmd
