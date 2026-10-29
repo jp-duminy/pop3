@@ -2,6 +2,8 @@
 
 cloudy:
   cloudy_path: ~/astro_builds/cloudy
+  datafile_dir: ~/
+  output_dir: ~/
 
 spheres:
   sp_dir: ~/mphys/data/spheres

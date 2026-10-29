@@ -92,7 +92,9 @@ class CloudyConfig:
     Contains Cloudy-specific parameters.
     """
 
-    cloudy_path: Path
+    cloudy_dir: Path
+    datafile_dir: Path
+    output_dir: Path
 
 
 @dataclass(frozen=True, slots=True)

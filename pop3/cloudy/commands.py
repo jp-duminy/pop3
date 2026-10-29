@@ -4,6 +4,7 @@ Dataclasses which represent Cloudy commands and can write directly to a .in file
 
 """
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,8 +13,33 @@ import numpy as np
 HAZY_FLOOR = 1e-35  # min distance which Cloudy accepts
 
 
+class CloudyCommand(ABC):
+    """
+    Abstract base class for Cloudy commands: stipulates overwriting the str representation
+    of the dataclass and should always be inherited.
+    """
+
+    @abstractmethod
+    def __str__(self) -> str: ...
+
+
+def create_input_file(commands: list[CloudyCommand], input_filepath: Path) -> str:
+    """
+    Creates and writes a .in file for Cloudy using a specified `CloudyCommand` sequence.
+    """
+    cmd_text = "\n".join(str(cmd) for cmd in commands)
+
+    # NOTE: this is a rather important check to ensure Cloudy is actually going to read the file
+    if any(not line.strip() for line in cmd_text.splitlines()):
+        raise ValueError("Blank lines in commands will prevent Cloudy from reading full .in file.")
+
+    input_filepath.write_text(cmd_text + "\n", encoding="ascii")  # add a blank line so cloudy breaks
+
+    return cmd_text
+
+
 @dataclass(frozen=True, slots=True)
-class DlawTable:
+class DlawTable(CloudyCommand):
     """
     Accepts:
 
@@ -49,7 +75,7 @@ class DlawTable:
 
 
 @dataclass(frozen=True, slots=True)
-class TlawTable:
+class TlawTable(CloudyCommand):
     """
     Accepts:
 
@@ -85,7 +111,7 @@ class TlawTable:
 
 
 @dataclass(frozen=True, slots=True)
-class Background:
+class Background(CloudyCommand):
     """
     Controls the two basic background commands. Accepts:
 
@@ -109,7 +135,7 @@ class Background:
 
 
 @dataclass(frozen=True, slots=True)
-class Blackbody:
+class Blackbody(CloudyCommand):
     """
     Controls the `blackbody` SED command. Accepts:
 
@@ -124,7 +150,7 @@ class Blackbody:
 
 
 @dataclass(frozen=True, slots=True)
-class TableSED:
+class TableSED(CloudyCommand):
     """
     Controls the specified `table SED` command. Accepts:
 
@@ -139,7 +165,7 @@ class TableSED:
 
 
 @dataclass(frozen=True, slots=True)
-class RadSource:
+class RadSource(CloudyCommand):
     """
     Controls the input SED, accepting either a blackbody or table.
     """
@@ -153,7 +179,7 @@ class RadSource:
 
 
 @dataclass(frozen=True, slots=True)
-class StopElectronFrac:
+class StopElectronFrac(CloudyCommand):
     """
     Controls the electron fraction stopping criterion `efrac`.
     """
@@ -171,7 +197,7 @@ class StopElectronFrac:
 
 
 @dataclass(frozen=True, slots=True)
-class SphereGeometry:
+class SphereGeometry(CloudyCommand):
     """
     Spherical (closed) geometry assuming a point source, like our PopIII stars are.
     """
@@ -185,7 +211,7 @@ class SphereGeometry:
 
 
 @dataclass(frozen=True, slots=True)
-class ElementTable:
+class ElementTable(CloudyCommand):
     """
     Controls the element table command.
 
@@ -196,6 +222,13 @@ class ElementTable:
     log_path_lengths: np.ndarray
     log_abundances: np.ndarray
 
+    def __post_init__(self) -> None:
+
+        if self.log_abundances != self.log_path_lengths.shape:
+            raise ValueError(
+                f"Density shape {self.log_abundances} is misaligned with path length shape {self.log_path_lengths.shape}"
+            )
+
     def __str__(self) -> str:
 
         rows = "\n".join(
@@ -205,3 +238,47 @@ class ElementTable:
         cmd = f"element {self.element_name} table depth\n{rows}\nend of table"
 
         return cmd
+
+
+@dataclass(frozen=True, slots=True)
+class Abundances(CloudyCommand):
+    """
+    Controls all `abundances` related work in Cloudy, including the primordial helium fraction (others relative to hydrogen).
+    """
+
+    elements: list[ElementTable]
+    primordial_helium: float = 0.08232
+
+    def __str__(self) -> str:
+
+        hydrogen_cmd = "element hydrogen abundance 0 log"  # hydrogen is just for normalisation
+        helium_cmd = f"element helium abundance {np.log10(self.primordial_helium):.6f} log"
+
+        cmd = "\n".join([hydrogen_cmd, helium_cmd, *(str(element) for element in self.elements)])
+
+        return cmd
+
+
+@dataclass(frozen=True, slots=True)
+class SaveCmd(CloudyCommand):
+    """
+    Controls which data to save. For linelist, enabling this means passing the data file `Path` object.
+    """
+
+    run_id: int | str
+    overview: bool = True
+    continuum: bool = True
+    linelist: Path | None = None
+
+    def __str__(self) -> str:
+
+        commands: list[str] = []
+
+        if self.overview:
+            commands.append(f'save overview last "{self.run_id}.ovr"')
+        if self.continuum:
+            commands.append(f'save continuum last units Angstroms "{self.run_id}.con"')
+        if self.linelist is not None:
+            commands.append(f'save line list last "{self.run_id}.lin" "{self.linelist.resolve()}"')
+
+        return "\n".join(commands)
