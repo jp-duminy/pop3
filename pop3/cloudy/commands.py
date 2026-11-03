@@ -224,9 +224,9 @@ class ElementTable(CloudyCommand):
 
     def __post_init__(self) -> None:
 
-        if self.log_abundances != self.log_path_lengths.shape:
+        if self.log_abundances.shape != self.log_path_lengths.shape:
             raise ValueError(
-                f"Density shape {self.log_abundances} is misaligned with path length shape {self.log_path_lengths.shape}"
+                f"Density shape {self.log_abundances.shape} is misaligned with path length shape {self.log_path_lengths.shape}"
             )
 
     def __str__(self) -> str:

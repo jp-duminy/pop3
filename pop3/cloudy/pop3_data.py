@@ -7,7 +7,7 @@ Handles PopIII abundance and SED data.
 from pathlib import Path
 
 import polars as pl
-from rich import Console
+from rich.console import Console
 
 
 def create_abundance_dict(abundance_file_path: Path, console: Console) -> dict[str, float]:
