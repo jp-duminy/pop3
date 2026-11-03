@@ -4,6 +4,7 @@ cloudy:
   cloudy_path: ~/astro_builds/cloudy
   datafile_dir: ~/
   output_dir: ~/
+  timeout_s: 3600.0
 
 spheres:
   sp_dir: ~/mphys/data/spheres

@@ -95,6 +95,7 @@ class CloudyConfig:
     cloudy_dir: Path
     datafile_dir: Path
     output_dir: Path
+    timeout_s: float
 
 
 @dataclass(frozen=True, slots=True)
