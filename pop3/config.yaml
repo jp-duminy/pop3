@@ -1,10 +1,14 @@
 # configuration file for params
 
 cloudy:
-  cloudy_path: ~/astro_builds/cloudy
-  datafile_dir: ~/
-  output_dir: ~/
+  cloudy_dir: ~/astro_builds/cloudy
+  datafile_dir: ~/mphys/data/cloudy_datafiles
+  output_dir: ~/mphys/data/cloudy_outputs
+  snap_path: /cephfs2/brs/pop2-prime/cc_512_no_dust_continue/DD0528/DD0528
   timeout_s: 3600.0
+  star: POP3-379
+  ray_length_kpc: 1.0
+  primordial_XH: 0.752
 
 spheres:
   sp_dir: ~/mphys/data/spheres

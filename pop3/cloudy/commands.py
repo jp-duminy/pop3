@@ -179,12 +179,13 @@ class RadSource(CloudyCommand):
 
 
 @dataclass(frozen=True, slots=True)
-class StopElectronFrac(CloudyCommand):
+class StopCondition(CloudyCommand):
     """
-    Controls the electron fraction stopping criterion `efrac`.
+    Controls the electron fraction stopping criterion `efrac` and the fallback `depth` command.
     """
 
     electron_frac: float
+    log_max_depth: float | None = None
 
     def __post_init__(self) -> None:
 
@@ -193,7 +194,10 @@ class StopElectronFrac(CloudyCommand):
 
     def __str__(self) -> str:
 
-        return f"stop efrac {self.electron_frac:.6f}"
+        lines = [f"stop efrac {self.electron_frac:.6f}"]
+        if self.log_max_depth is not None:
+            lines.append(f"stop depth {self.log_max_depth:.6f}")
+        return "\n".join(lines)
 
 
 @dataclass(frozen=True, slots=True)
@@ -247,7 +251,7 @@ class Abundances(CloudyCommand):
     """
 
     elements: list[ElementTable]
-    primordial_helium: float = 0.08232
+    primordial_helium: float = 0.08232  # pilfered from Cloudy's primordial.abn
 
     def __str__(self) -> str:
 
@@ -265,7 +269,7 @@ class SaveCmd(CloudyCommand):
     Controls which data to save. For linelist, enabling this means passing the data file `Path` object.
     """
 
-    run_id: int | str
+    run_id: int
     overview: bool = True
     continuum: bool = True
     linelist: Path | None = None
@@ -279,6 +283,7 @@ class SaveCmd(CloudyCommand):
         if self.continuum:
             commands.append(f'save continuum last units Angstroms "{self.run_id}.con"')
         if self.linelist is not None:
-            commands.append(f'save line list last "{self.run_id}.lin" "{self.linelist.resolve()}"')
+            commands.append("print line vacuum")
+            commands.append(f'save line list last "{self.run_id}.lin" "{self.linelist.name}"')
 
         return "\n".join(commands)

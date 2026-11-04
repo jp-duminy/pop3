@@ -19,7 +19,9 @@ DEFAULT_CONFIG_PATH = Path(__file__).parent / "config.yaml"
 
 FILEPATHS = frozenset(
     {
-        "cloudy_path",
+        "cloudy_dir",
+        "datafile_dir",
+        "output_dir",
         "ledger_path",
         "sp_dir",
         "profile_plot_dir",
@@ -28,6 +30,7 @@ FILEPATHS = frozenset(
         "frame_dir",
         "data_dir",
         "mpl_style",
+        "snap_path",
     }
 )
 
@@ -96,6 +99,10 @@ class CloudyConfig:
     datafile_dir: Path
     output_dir: Path
     timeout_s: float
+    snap_path: Path
+    star: str
+    ray_length_kpc: float
+    primordial_XH: float
 
 
 @dataclass(frozen=True, slots=True)

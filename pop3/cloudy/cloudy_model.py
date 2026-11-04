@@ -16,6 +16,12 @@ import numpy as np
 
 from ..utils import CloudyConfig
 from .commands import create_input_file
+from .parsers import (
+    read_continuum,
+    read_line_list,
+    read_out_log,
+    read_overview,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,11 +36,20 @@ class CloudyResult:
     - overview: the parsed .ovr file
     """
 
-    run_ID: int
+    run_id: int
     status: str
-    continuum: np.ndarray | None = None
+    continuum: dict[str, np.ndarray] | None = None
     lines: dict[str, float] | None = None
-    overview: np.ndarray | None = None
+    overview: dict[str, np.ndarray] | None = None
+
+    @classmethod
+    def err(cls, run_id: int) -> CloudyResult:
+        """
+        Returns an empty CloudyResult with the error status.
+        """
+        result = cls(run_id=run_id, status="error")
+
+        return result
 
 
 class CloudyModel:
@@ -85,3 +100,26 @@ class CloudyModel:
             timeout=self.timeout_s,
             check=False,
         )
+
+    def package_data(self) -> CloudyResult:
+        """
+        Parses Cloudy's output files into a neat CloudyResult object.
+        """
+        run_succeeded = read_out_log(out_path=self.run_dir / f"{self.run_id}.out")
+
+        if not run_succeeded:
+            return CloudyResult.err(run_id=self.run_id)
+
+        cont = read_continuum(continuum_path=self.run_dir / f"{self.run_id}.con") if self.save_cmd.continuum else None
+        lin = read_line_list(line_path=self.run_dir / f"{self.run_id}.lin") if self.save_cmd.linelist else None
+        ovr = read_overview(overview_path=self.run_dir / f"{self.run_id}.ovr") if self.save_cmd.overview else None
+
+        result = CloudyResult(
+            run_id=self.run_id,
+            status="success",
+            continuum=cont,
+            lines=lin,
+            overview=ovr,
+        )
+
+        return result
