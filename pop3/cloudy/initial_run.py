@@ -13,7 +13,6 @@ if TYPE_CHECKING:
     from .cloudy_model import CloudyResult
     from .commands import CloudyCommand
 
-import os
 from pathlib import Path
 
 import numpy as np
@@ -38,7 +37,7 @@ from .commands import (
     TlawTable,
 )
 from .parsers import read_nomoto_table
-from .process_spheres import spherical_to_cartesian, uniform_sample_sphere
+from .ray_extraction import cast_rays
 
 FIELDS: dict[str, tuple[str, str]] = {
     "density": ("gas", "density"),
@@ -77,15 +76,10 @@ def test_ray_extraction(snap_path: Path, star_pos: np.ndarray, ray_length: float
     centre = ds.arr(star_pos, "unitary")
     radius = ds.quan(ray_length, "kpc").to("unitary")
 
-    theta, phi = uniform_sample_sphere(n_side=16)  # only takes a multiple of 2
-    test_theta, test_phi = theta[0], phi[0]
-    # TODO: refactor spherical_to_cartesian so I don't have to do this
-    coords = ds.arr(
-        [component.d for component in spherical_to_cartesian(radius=radius, theta=test_theta, phi=test_phi)],
-        radius.units,
-    )
+    all_coords = cast_rays(centre=centre, radius=radius)
+    test_coords = all_coords[:, 0]
 
-    ray = ds.ray(centre, coords + centre)
+    ray = ds.ray(centre, test_coords)
     ray_t = ray["t"]  # where the ray enters each cell
     ray_dts = ray["dts"]  # length of ray segment inside each cell
     ray_sort = np.argsort(ray_t, stable=True)  # depth-order of ray
@@ -186,9 +180,8 @@ def run_test_model(config: Pop3Config, ledger: pl.DataFrame, console: Console) -
     model = CloudyModel(config=config.cloudy, in_commands=cmd_list, save_command=save_cmd)
     console.log("Successfully instantiated a CloudyModel.")
 
-    model.write_input()
+    model.prepare()
     console.log(f"Wrote input files at {model.run_dir}.")
-    os.environ["CLOUDY_DATA_PATH"] = f"+:{config.cloudy.datafile_dir.resolve()}"
     model.execute()
     console.log("Successfully ran Cloudy! Sending back data.")
     result = model.package_data()

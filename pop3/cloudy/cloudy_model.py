@@ -78,13 +78,22 @@ class CloudyModel:
         # runtime parameters
         self.timeout_s = config.timeout_s
 
-    def write_input(self) -> None:
+    def prepare(self) -> None:
         """
-        Writes a .in file for the model.
+        Creates a directory for the model in `self.output_dir`; writes a corresponding .in file into this directory;
+        and creates symlinks to the datafiles in datafile_dir so Cloudy can discover them.
         """
+        # make a directory for inputs and outputs (set self here so not calling this method raises an error)
         run_dir = self.output_dir / str(self.run_id)
         run_dir.mkdir(parents=True, exist_ok=True)
         self.run_dir = run_dir
+
+        # symlink the datafiles to run_dir so Cloudy can read them (this gave me lots of grief originally)
+        datafiles = self.datafile_dir.glob("*")
+        for file in datafiles:
+            link_path = run_dir / file.name
+            link_path.unlink(missing_ok=True)
+            link_path.symlink_to(file)
 
         create_input_file(commands=[*self.in_cmds, self.save_cmd], input_filepath=run_dir / f"{self.run_id}.in")
 
