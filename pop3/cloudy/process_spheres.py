@@ -7,33 +7,27 @@ Scripts for extracting information from spheres, including rays, profiles, sampl
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from numpy.random import Generator
     from unyt import unyt_array
-    from yt.data_objects.static_output import Dataset
 
 import healpy as hp
 import numpy as np
 
-SEED = 2317434
 
-
-def random_sample_sphere(rng: Generator, n_samples: int) -> tuple[np.ndarray, np.ndarray]:
+def cast_rays(centre: unyt_array, radius: unyt_array, n_side: int = 8) -> unyt_array:
     """
-    Randomly samples a sphere in (theta, phi), per https://mathworld.wolfram.com/SpherePointPicking.html. To evenly
-    sample the sphere many samples may be necessary.
-    Returns:
+    Uniformly samples the sphere in (theta, phi) via healpix (healpy). n_side must be a power of 2. Returns:
 
-    - theta: randomly sampled theta (polar) values
-    - phi: randomly sampled phi (azimuth) values
+    - ray_coords: cartesian coords of points on a sphere of `radius` to sample from (shape is ((x, y, z), n_rays))
     """
+    n_pix = hp.pixelfunc.nside2npix(n_side)
+    theta, phi = hp.pix2ang(n_side, np.arange(n_pix))
 
-    rand_u = rng.uniform(0, 1, size=n_samples)
-    rand_v = rng.uniform(0, 1, size=n_samples)
+    # convert theta[rad], phi[rad] into cartesian directions then scale to ray length and star position
+    direction = np.array([np.sin(theta) * np.cos(phi), np.sin(theta) * np.sin(phi), np.cos(theta)])
+    ray_coords = radius * direction  # inherits the radius units
+    ray_coords += centre[:, np.newaxis]  # broadcast centre to match dimensions
 
-    phi = 2.0 * np.pi * rand_u  # NOTE: wolfram uses the mathematician's convention
-    theta = np.arccos(2.0 * rand_v - 1.0)
-
-    return theta, phi
+    return ray_coords
 
 
 def uniform_sample_sphere(n_side: int = 32) -> tuple[np.ndarray, np.ndarray]:
@@ -62,26 +56,3 @@ def spherical_to_cartesian(
     z = radius * np.cos(theta)
 
     return x, y, z
-
-
-def extract_sightline(
-    sp_ds: Dataset,
-    coords: unyt_array,
-    fields: list[tuple[str, str]],
-) -> tuple[tuple[unyt_array, ...], unyt_array]:
-    """
-    Extracts spatially-ordered arrays from the centre of a sphere dataset to the point specified by `coords` (a point offset from
-    the origin of the sphere). This is done by casting a `yt` ray. `coords` should be in Cartesian. All fields specified by `fields` will be extracted.
-    Returns:
-
-    - arrays: a tuple of arrays, one for each field.
-    - path_length: the path length of the ray
-    """
-    centre = sp_ds.parameters["center"].to("cm")
-    ray = sp_ds.ray(centre, coords + centre)
-    ray_sort = np.argsort(ray["t"], stable=True)
-
-    arrays = tuple(ray[field][ray_sort] for field in fields)
-    path_length = ray["t"][ray_sort] * np.linalg.norm(coords)
-
-    return arrays, path_length

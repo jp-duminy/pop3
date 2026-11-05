@@ -103,6 +103,8 @@ class CloudyConfig:
     star: str
     ray_length_kpc: float
     primordial_XH: float
+    n_side: int = 8  # enzo's choice
+    homogeneous: bool = False
 
 
 @dataclass(frozen=True, slots=True)
