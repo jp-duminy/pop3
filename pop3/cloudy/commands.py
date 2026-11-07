@@ -75,6 +75,23 @@ class DlawTable(CloudyCommand):
 
 
 @dataclass(frozen=True, slots=True)
+class ConstantDensity(CloudyCommand):
+    """
+    Controls the constant (hydrogen) density command.
+
+    `hden <val> log`
+    """
+
+    log_h_density: float
+
+    def __str__(self) -> str:
+
+        cmd = f"hden {self.log_h_density:.6f} log"
+
+        return cmd
+
+
+@dataclass(frozen=True, slots=True)
 class TlawTable(CloudyCommand):
     """
     Accepts:
@@ -106,6 +123,23 @@ class TlawTable(CloudyCommand):
             )  # also ensures same length
         )
         cmd = f"tlaw table depth\n{rows}\nend of tlaw"
+
+        return cmd
+
+
+@dataclass(frozen=True, slots=True)
+class ConstantTemperature(CloudyCommand):
+    """
+    Controls the constant temperature command.
+
+    `constant <val> temperature log`
+    """
+
+    log_temperature: float
+
+    def __str__(self) -> str:
+
+        cmd = f"constant temperature {self.log_temperature:.6f} log"
 
         return cmd
 
@@ -245,12 +279,31 @@ class ElementTable(CloudyCommand):
 
 
 @dataclass(frozen=True, slots=True)
-class Abundances(CloudyCommand):
+class ElementAbundance(CloudyCommand):
     """
-    Controls all `abundances` related work in Cloudy, including the primordial helium fraction (others relative to hydrogen).
+    Controls the scalar element abundance command.
+
+    `element <name> abundance log`
     """
 
-    elements: list[ElementTable]
+    element_name: str
+    log_abundance: float
+
+    def __str__(self) -> str:
+
+        cmd = f"element {self.element_name} abundance {self.log_abundance:.6f} log"
+
+        return cmd
+
+
+@dataclass(frozen=True, slots=True)
+class Abundances(CloudyCommand):
+    """
+    Controls all `abundances` related work in Cloudy, including the primordial helium fraction (others relative to
+    hydrogen). Takes both scalar abundance or tables.
+    """
+
+    elements: list[ElementTable | ElementAbundance]
     primordial_helium: float = 0.08232  # pilfered from Cloudy's primordial.abn
 
     def __str__(self) -> str:

@@ -32,6 +32,7 @@ UNITS: dict[str, str] = {
     "temperature": "K",
     "metallicity": "",
     "h_density": "cm**-3",
+    "hii_density": "cm**-3",
     "r0": "cm",
     "depth": "cm",
 }
@@ -69,11 +70,11 @@ class RayArrays:
     - depth (midpoints of ray cells)
     """
 
-    temperature: unyt_array
-    metallicity: unyt_array
-    h_density: unyt_array
-    r0: unyt_array
-    depth: unyt_array
+    temperature: np.ndarray
+    metallicity: np.ndarray
+    h_density: np.ndarray
+    r0: np.ndarray
+    depth: np.ndarray
 
     def to_homogeneous(self, ray_dts: unyt_array, hii_density: unyt_array) -> RayHomogeneous:
         """
@@ -147,21 +148,24 @@ def extract_ray(
     ray_dts = ray_dts[ray_sort]
 
     # I'm defining r0 as the position of the first cell hit by the star cell's ionising radiation
-    r0 = radius * (ray_t[0] + ray_dts[0])
-    midpoints = ((ray_t + ray_dts / 2)[1:] * radius) - r0  # the midpoint of each cell shifted so r0 is the origin
+    r0: unyt_array = radius * (ray_t[0] + ray_dts[0])
+    midpoints: unyt_array = (
+        (ray_t + ray_dts / 2)[1:] * radius
+    ) - r0  # the midpoint of each cell shifted so r0 is the origin
 
     arrays = RayArrays(
         **{
-            name: ray[field][ray_sort][1:].to(UNITS[name]) for name, field in FIELDS.items()
+            name: ray[field][ray_sort][1:].to(UNITS[name]).d
+            for name, field in FIELDS.items()  # strip units
         },  # an elegant unpack indeed
         # these should come out in CGS but let's assure ourselves
-        r0=r0.to(UNITS["r0"]),
-        depth=midpoints.to(UNITS["depth"]),
+        r0=r0.to(UNITS["r0"]).d,
+        depth=midpoints.to(UNITS["depth"]).d,
     )
 
     if homogeneous:
-        hii_density = ray[("gas", "H_p1_number_density")][ray_sort][1:]
-        return arrays.to_homogeneous(ray_dts=ray_dts[1:], hii_density=hii_density)
+        hii_density = ray[("gas", "H_p1_number_density")][ray_sort][1:].to(UNITS["hii_density"]).d
+        return arrays.to_homogeneous(ray_dts=ray_dts[1:].d, hii_density=hii_density)
 
     return arrays
 
