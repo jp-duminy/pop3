@@ -30,7 +30,7 @@ FIELDS: dict[str, tuple[str, str]] = {
 
 UNITS: dict[str, str] = {
     "temperature": "K",
-    "metallicity": "",
+    "metallicity": "dimensionless",
     "h_density": "cm**-3",
     "hii_density": "cm**-3",
     "r0": "cm",

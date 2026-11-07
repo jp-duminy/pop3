@@ -4,13 +4,19 @@ cloudy:
   cloudy_dir: ~/astro_builds/cloudy
   datafile_dir: ~/mphys/data/cloudy_datafiles
   output_dir: ~/mphys/data/cloudy_outputs
-  snap_path: /cephfs2/brs/pop2-prime/cc_512_no_dust_continue/DD0528/DD0528
+  snap_dir: /cephfs2/brs/pop2-prime/cc_512_no_dust_continue
   timeout_s: 3600.0
   star: POP3-379
+  star_age_myr: 2.5
   ray_length_kpc: 1.0
   primordial_XH: 0.752
-  n_side: 8  # n_rays = 12 * n_side**2
+  efrac_threshold: 0.01
+  use_cosmic_rays: true
+  n_side: 1  # n_rays = 12 * n_side**2
   homogeneous: false
+  store_overview: true
+  store_continuum: true
+  store_lines: true
 
 spheres:
   sp_dir: ~/mphys/data/spheres

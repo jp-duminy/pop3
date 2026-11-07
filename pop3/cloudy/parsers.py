@@ -56,8 +56,8 @@ def read_out_log(out_path: Path) -> bool:
     """
     Reads an output .out file, returning whether Cloudy successfully ran.
     """
-    last_line = out_path.read_text().rstrip().splitlines()[-1]
-    run_complete = "Cloudy exited OK" in last_line
+    lines = out_path.read_text().rstrip().splitlines()
+    run_complete = bool(lines) and "Cloudy exited OK" in lines[-1]  # this will catch an error if .out is empty
 
     return run_complete
 

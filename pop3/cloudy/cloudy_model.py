@@ -37,17 +37,18 @@ class CloudyResult:
     """
 
     run_id: int
-    status: str
+    success: bool
+    reason: str | None = None
     continuum: dict[str, np.ndarray] | None = None
     lines: dict[str, float] | None = None
     overview: dict[str, np.ndarray] | None = None
 
     @classmethod
-    def err(cls, run_id: int) -> CloudyResult:
+    def err(cls, run_id: int, reason: str) -> CloudyResult:
         """
         Returns an empty CloudyResult with the error status.
         """
-        result = cls(run_id=run_id, status="error")
+        result = cls(run_id=run_id, success=False, reason=reason)
 
         return result
 
@@ -117,7 +118,7 @@ class CloudyModel:
         run_succeeded = read_out_log(out_path=self.run_dir / f"{self.run_id}.out")
 
         if not run_succeeded:
-            return CloudyResult.err(run_id=self.run_id)
+            return CloudyResult.err(run_id=self.run_id, reason="Cloudy stopped")
 
         cont = read_continuum(continuum_path=self.run_dir / f"{self.run_id}.con") if self.save_cmd.continuum else None
         lin = read_line_list(line_path=self.run_dir / f"{self.run_id}.lin") if self.save_cmd.linelist else None
@@ -125,7 +126,7 @@ class CloudyModel:
 
         result = CloudyResult(
             run_id=self.run_id,
-            status="success",
+            success=True,
             continuum=cont,
             lines=lin,
             overview=ovr,

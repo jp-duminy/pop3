@@ -30,7 +30,7 @@ FILEPATHS = frozenset(
         "frame_dir",
         "data_dir",
         "mpl_style",
-        "snap_path",
+        "snap_dir",
     }
 )
 
@@ -99,12 +99,18 @@ class CloudyConfig:
     datafile_dir: Path
     output_dir: Path
     timeout_s: float
-    snap_path: Path
+    snap_dir: Path
     star: str
+    star_age_myr: float
     ray_length_kpc: float
     primordial_XH: float
     n_side: int = 8  # enzo's choice
+    use_cosmic_rays: bool = True
+    efrac_threshold: float = 0.01  # fergus' choice
     homogeneous: bool = False
+    store_overview: bool = True
+    store_continuum: bool = True
+    store_lines: bool = True
 
 
 @dataclass(frozen=True, slots=True)
