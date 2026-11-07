@@ -1,6 +1,7 @@
 """
 
-Scripts for extracting information from spheres, including rays, profiles, sampling, etc.
+Functionality for extracting rays from the full Pop2Prime snapshots and converting these into tidy objects which
+can then be fed to Cloudy via the CloudyModel and command dataclasses.
 
 """
 
@@ -74,7 +75,7 @@ class RayArrays:
     r0: unyt_array
     depth: unyt_array
 
-    def to_homogenous(self, ray_dts: unyt_array, hii_density: unyt_array) -> RayHomogeneous:
+    def to_homogeneous(self, ray_dts: unyt_array, hii_density: unyt_array) -> RayHomogeneous:
         """
         Converts the object to a `RayHomogeneous` one by taking the mean of each quantity, weighted
         by cell path length `dts` * HII density.
@@ -160,7 +161,7 @@ def extract_ray(
 
     if homogeneous:
         hii_density = ray[("gas", "H_p1_number_density")][ray_sort][1:]
-        return arrays.to_homogenous(ray_dts=ray_dts[1:], hii_density=hii_density)
+        return arrays.to_homogeneous(ray_dts=ray_dts[1:], hii_density=hii_density)
 
     return arrays
 
