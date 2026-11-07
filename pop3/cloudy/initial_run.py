@@ -37,7 +37,7 @@ from .commands import (
     TlawTable,
 )
 from .parsers import read_nomoto_table
-from .ray_extraction import cast_rays
+from .ray_extraction import generate_ray_coordinates
 
 FIELDS: dict[str, tuple[str, str]] = {
     "density": ("gas", "density"),
@@ -47,6 +47,7 @@ FIELDS: dict[str, tuple[str, str]] = {
 }
 
 
+# NOTE: currently being refactored
 class RayArrays(NamedTuple):
     """
     Container for the four primary quantities of interest coming out of the rays. All quantities
@@ -67,6 +68,7 @@ class RayArrays(NamedTuple):
     depth: unyt_array
 
 
+# NOTE: currently being refactored
 def test_ray_extraction(snap_path: Path, star_pos: np.ndarray, ray_length: float) -> tuple[RayArrays, float]:
     """
     Extract rays from the specified star. Returns a nicely-packaged RayArrays namedtuple and the redshift.
@@ -76,7 +78,7 @@ def test_ray_extraction(snap_path: Path, star_pos: np.ndarray, ray_length: float
     centre = ds.arr(star_pos, "unitary")
     radius = ds.quan(ray_length, "kpc").to("unitary")
 
-    all_coords = cast_rays(centre=centre, radius=radius)
+    all_coords = generate_ray_coordinates(centre=centre, radius=radius)
     test_coords = all_coords[:, 0]
 
     ray = ds.ray(centre, test_coords)
