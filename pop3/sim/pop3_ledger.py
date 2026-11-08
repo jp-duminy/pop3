@@ -21,7 +21,7 @@ from mpi4py.futures import MPIPoolExecutor
 from yt.data_objects.particle_filters import add_particle_filter
 
 from ..utils import (
-    instantiate_logger,
+    instantiate_console,
     load_config,
     my_progress,
     parse_args,
@@ -195,7 +195,7 @@ if __name__ == "__main__":
     """
     yt.set_log_level("warning")  # avoids lots of verbose output
     config = load_config(parse_args())
-    console = instantiate_logger()
+    console = instantiate_console()
 
     snapshot_paths = sorted(
         (config.spheres.data_dir / "pop3").glob(pattern="DD*.h5")

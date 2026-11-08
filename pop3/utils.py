@@ -178,7 +178,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def instantiate_logger() -> Console:
+def instantiate_console() -> Console:
     """
     Instantiates the terminal UI with parallel-aware rich. Returns a `Console` object.
     """

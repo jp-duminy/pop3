@@ -25,7 +25,7 @@ from matplotlib.colors import LogNorm
 from mpi4py.futures import MPIPoolExecutor
 
 from ..utils import (
-    instantiate_logger,
+    instantiate_console,
     load_config,
     my_progress,
     parse_args,
@@ -329,7 +329,7 @@ def _profile_quantiles(
 if __name__ == "__main__":
     args = parse_args()
     config = load_config(args)
-    console = instantiate_logger()
+    console = instantiate_console()
     yt.set_log_level("error")
 
     all_tasks = build_plot_tasks(

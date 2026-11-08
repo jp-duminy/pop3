@@ -20,7 +20,7 @@ import numpy as np
 import polars as pl
 from mpi4py.futures import MPIPoolExecutor
 
-from ..utils import instantiate_logger, load_config, my_progress, parse_args
+from ..utils import instantiate_console, load_config, my_progress, parse_args
 from .cloudy_model import CloudyModel, CloudyResult
 from .commands import SaveCmd
 from .parsers import read_nomoto_table
@@ -131,7 +131,7 @@ def run_ray(
 if __name__ == "__main__":
     # set up logging, read inputs, find the star
     args = parse_args()
-    console = instantiate_logger()
+    console = instantiate_console()
     config = load_config(args=args)
     nomoto_yields = read_nomoto_table(nomoto_path=config.cloudy.datafile_dir / "pop3_metals.tsv", config=config)
     ledger = pl.read_parquet(config.stars.ledger_path)

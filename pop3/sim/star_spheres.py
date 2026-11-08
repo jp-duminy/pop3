@@ -21,7 +21,7 @@ from scipy.optimize import brentq
 
 from ..sim.pop3_ledger import add_metallicity3, select_stars, star_lifetime_summary
 from ..utils import (
-    instantiate_logger,
+    instantiate_console,
     load_config,
     my_progress,
     parse_args,
@@ -166,7 +166,7 @@ if __name__ == "__main__":
     args = parse_args()
     config = load_config(args)
 
-    console = instantiate_logger()
+    console = instantiate_console()
 
     ledger = pl.read_parquet(config.stars.ledger_path)
     labels = config.stars.process_stars or star_lifetime_summary(ledger)["label"].to_list()

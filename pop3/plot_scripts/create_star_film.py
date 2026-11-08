@@ -31,7 +31,7 @@ from matplotlib.colors import LogNorm
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 
 from ..sim.pop3_ledger import select_stars, star_lifetime_summary
-from ..utils import instantiate_logger, load_config, parse_args
+from ..utils import instantiate_console, load_config, parse_args
 
 MPL_STYLE = Path.home() / "mnras.mplstyle"
 
@@ -392,7 +392,7 @@ def assemble_film(frame_dir: Path, output_path: Path, framerate: int) -> None:
 if __name__ == "__main__":
     args = parse_args()
     config = load_config(args)
-    console = instantiate_logger()
+    console = instantiate_console()
     ledger: pl.DataFrame = pl.read_parquet(config.stars.ledger_path)
     summaries = star_lifetime_summary(ledger=ledger)
 
