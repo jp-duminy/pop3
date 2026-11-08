@@ -92,6 +92,23 @@ class ConstantDensity(CloudyCommand):
 
 
 @dataclass(frozen=True, slots=True)
+class SetDensityTolerance(CloudyCommand):
+    """
+    Controls the density tolerance command.
+
+    `Set density tolerance <val>`
+    """
+
+    relative_tolerance: float = 1.0e-5
+
+    def __str__(self) -> str:
+
+        cmd = f"Set density tolerance {self.relative_tolerance}"
+
+        return cmd
+
+
+@dataclass(frozen=True, slots=True)
 class TlawTable(CloudyCommand):
     """
     Accepts:

@@ -23,6 +23,7 @@ from .commands import (
     ElementAbundance,
     ElementTable,
     RadSource,
+    SetDensityTolerance,
     SphereGeometry,
     StopCondition,
     TlawTable,
@@ -58,6 +59,7 @@ def build_cloudy_cmds(
             redshift=redshift,
             stop_efrac=config.efrac_threshold,
             cosmic_rays=config.use_cosmic_rays,
+            density_tol=config.density_tolerance,
         )
     )
 
@@ -128,7 +130,12 @@ def homogeneous_to_cmds(
 
 
 def common_cmds(
-    r0: float, log_max_depth: float, redshift: float, stop_efrac: float, cosmic_rays: bool
+    r0: float,
+    log_max_depth: float,
+    redshift: float,
+    stop_efrac: float,
+    cosmic_rays: bool,
+    density_tol: float,
 ) -> list[CloudyCommand]:
     """
     Builds commands which are agnostic to the arrays vs homogeneity choice.
@@ -138,5 +145,6 @@ def common_cmds(
     cmds.append(StopCondition(electron_frac=stop_efrac, log_max_depth=log_max_depth))
     cmds.append(Background(redshift=redshift, use_cosmic_rays=cosmic_rays))
     cmds.append(RadSource(shape=Blackbody(log_temperature=4.9), log_q_hydrogen=49.4))  # schaerer+2003 vals
+    cmds.append(SetDensityTolerance(relative_tolerance=density_tol))
 
     return cmds

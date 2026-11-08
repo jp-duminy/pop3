@@ -107,6 +107,7 @@ class CloudyConfig:
     n_side: int = 8  # enzo's choice
     use_cosmic_rays: bool = True
     efrac_threshold: float = 0.01  # fergus' choice
+    density_tolerance: float = 1.0e-5
     homogeneous: bool = False
     store_overview: bool = True
     store_continuum: bool = True

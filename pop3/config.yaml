@@ -11,6 +11,7 @@ cloudy:
   ray_length_kpc: 1.0
   primordial_XH: 0.752
   efrac_threshold: 0.01
+  density_tolerance: 2.0e-4
   use_cosmic_rays: true
   n_side: 1  # n_rays = 12 * n_side**2
   homogeneous: false
