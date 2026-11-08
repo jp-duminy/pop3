@@ -199,12 +199,12 @@ def instantiate_logger() -> Console:
     return console
 
 
-def my_progress(console: Console) -> Progress:
+def my_progress(console: Console, spinner: str = "earth") -> Progress:
     """
     Modified rich progress bar.
     """
     return Progress(
-        SpinnerColumn(spinner_name="earth"),
+        SpinnerColumn(spinner_name=spinner),
         *Progress.get_default_columns(),
         TimeElapsedColumn(),
         console=console,

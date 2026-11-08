@@ -82,9 +82,9 @@ def get_star(ledger: pl.DataFrame, config: CloudyConfig, console: Console) -> tu
     redshift = closest["redshift"]
     snapshot = closest["snapshot"]
 
-    console.log(f"Found star {closest['label']} in snapshot {snapshot} at redshift {redshift}")
+    console.log(f"Found star {closest['label']} in snapshot {snapshot} at redshift {redshift:.3f}")
     console.log(f"  Position (unitary units): {pos}")
-    console.log(f"  Age in this snapshot: {matched_age} Myr, {offset} Myr from input")
+    console.log(f"  Age in this snapshot: {matched_age:.3f} Myr, {offset:.3f} Myr from input")
 
     return pos, redshift, snapshot
 
@@ -157,8 +157,8 @@ if __name__ == "__main__":
     n_rays = hp.nside2npix(config.cloudy.n_side)
     results: list[CloudyResult] = []
 
-    # progress bar + mpi worker pool
-    with my_progress(console=console) as progress, MPIPoolExecutor() as executor:
+    # progress bar + mpi worker pool (cloud emoji on the progress bar is rumoured to speed up cloudy)
+    with my_progress(console=console, spinner="weather") as progress, MPIPoolExecutor() as executor:
         task_id = progress.add_task("Running Cloudy Models", total=n_rays)
         # workers grab rays as rank 0 delivers them (create_cloudy_tasks() delivers an iterator)
         futures = {executor.submit(run_ray, model_input, config.cloudy) for model_input in model_inputs}

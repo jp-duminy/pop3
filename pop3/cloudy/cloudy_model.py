@@ -115,10 +115,10 @@ class CloudyModel:
         """
         Parses Cloudy's output files into a neat CloudyResult object.
         """
-        run_succeeded = read_out_log(out_path=self.run_dir / f"{self.run_id}.out")
+        log_output = read_out_log(out_path=self.run_dir / f"{self.run_id}.out")
 
-        if not run_succeeded:
-            return CloudyResult.err(run_id=self.run_id, reason="Cloudy stopped")
+        if log_output is not None:  # returns None if Cloudy exited okay
+            return CloudyResult.err(run_id=self.run_id, reason=log_output)
 
         cont = read_continuum(continuum_path=self.run_dir / f"{self.run_id}.con") if self.save_cmd.continuum else None
         lin = read_line_list(line_path=self.run_dir / f"{self.run_id}.lin") if self.save_cmd.linelist else None

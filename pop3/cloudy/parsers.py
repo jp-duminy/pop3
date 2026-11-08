@@ -4,12 +4,20 @@ Functionality for writing and parsing .lin files.
 
 """
 
+import re
 from pathlib import Path
 
 import numpy as np
 import polars as pl
 
 from ..utils import Pop3Config
+
+CLOUDY_FAILURE: re.Pattern[str] = re.compile(  # Cloudy stops due to physics/numerical failure
+    r"^\s*Failed:\s*(?P<reason>.+?)\s*$", re.MULTILINE
+)
+CLOUDY_CRASH: re.Pattern[str] = re.compile(  # Cloudy actually just crashes
+    r"^\s*(?:PROBLEM|ABORT)\s+DISASTER\b.*?(?P<file>[\w./]+\.cpp:\d+)", re.MULTILINE
+)
 
 
 def read_line_list(line_path: Path) -> dict[str, float]:
@@ -52,14 +60,26 @@ def read_overview(overview_path: Path) -> dict[str, np.ndarray]:
     return results
 
 
-def read_out_log(out_path: Path) -> bool:
+def read_out_log(out_path: Path) -> str | None:
     """
-    Reads an output .out file, returning whether Cloudy successfully ran.
+    Reads the Cloudy .out file, returning `None` if all was well, and a string with the error message if not.
     """
-    lines = out_path.read_text().rstrip().splitlines()
-    run_complete = bool(lines) and "Cloudy exited OK" in lines[-1]  # this will catch an error if .out is empty
+    out_text = out_path.read_text(errors="replace").rstrip()
 
-    return run_complete
+    if not out_text:
+        return ".out file is empty"
+
+    if "Cloudy exited OK" in out_text.splitlines()[-1]:  # if successful this is on the final line
+        return None
+
+    # regexs for failures in the Cloudy code
+    if (failure_match := CLOUDY_FAILURE.search(out_text)) is not None:
+        return f"failed due to {failure_match['reason']}"
+
+    if (crash_match := CLOUDY_CRASH.search(out_text)) is not None:
+        return f"crashed in source code file {crash_match['file']} "
+
+    return "unknown error"
 
 
 def read_nomoto_table(nomoto_path: Path, config: Pop3Config) -> dict[str, float]:
