@@ -169,8 +169,7 @@ if __name__ == "__main__":
             msg = "Success" if result.success else f"Error: {result.reason}"
             console.log(f"Cloudy Model {result.run_id}: {msg}")  # explicitly catches errors
 
-            if result.success:
-                results.append(result)
+            results.append(result)
 
     console.log("All Cloudy Models Finished!")
-    console.log(f"{len(results)}/{n_rays} models succeeded.")
+    console.log(f"{len([res for res in results if res.success])}/{n_rays} models succeeded.")

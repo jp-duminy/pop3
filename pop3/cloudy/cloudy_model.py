@@ -118,6 +118,19 @@ class CloudyModel:
         log_output = read_out_log(out_path=self.run_dir / f"{self.run_id}.out")
 
         if log_output is not None:  # returns None if Cloudy exited okay
+            # if convergence/numerical failure, still return .ovr which contains state before failure
+            if "failed due to" in log_output:
+                ovr = (
+                    read_overview(overview_path=self.run_dir / f"{self.run_id}.ovr") if self.save_cmd.overview else None
+                )
+
+                return CloudyResult(
+                    run_id=self.run_id,
+                    reason=log_output,
+                    success=False,
+                    overview=ovr,
+                )
+
             return CloudyResult.err(run_id=self.run_id, reason=log_output)
 
         cont = read_continuum(continuum_path=self.run_dir / f"{self.run_id}.con") if self.save_cmd.continuum else None
