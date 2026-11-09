@@ -15,6 +15,7 @@ import subprocess
 from concurrent.futures import as_completed
 from pathlib import Path
 
+import h5py
 import healpy as hp
 import numpy as np
 import polars as pl
@@ -23,6 +24,7 @@ from mpi4py.futures import MPIPoolExecutor
 from ..utils import instantiate_console, load_config, my_progress, parse_args
 from .cloudy_model import CloudyModel, CloudyResult
 from .commands import SaveCmd
+from .data_storage import create_output_file, write_result
 from .parsers import read_nomoto_table
 from .ray_extraction import RayArrays, RayHomogeneous, create_cloudy_tasks
 from .rays_to_commands import build_cloudy_cmds
@@ -153,12 +155,17 @@ if __name__ == "__main__":
             )
         )
     )
-
+    output_path = create_output_file(config=config.cloudy, force=args.force)
+    console.log(f"Created file for outputs at {output_path}")
     n_rays = hp.nside2npix(config.cloudy.n_side)
-    results: list[CloudyResult] = []
+    successes = 0
 
     # progress bar + mpi worker pool (cloud emoji on the progress bar is rumoured to speed up cloudy)
-    with my_progress(console=console, spinner="weather") as progress, MPIPoolExecutor() as executor:
+    with (
+        my_progress(console=console, spinner="weather") as progress,
+        MPIPoolExecutor() as executor,
+        h5py.File(output_path, "r+") as out,  # NOT "w" mode
+    ):
         task_id = progress.add_task("Running Cloudy Models", total=n_rays)
         # workers grab rays as rank 0 delivers them (create_cloudy_tasks() delivers an iterator)
         futures = {executor.submit(run_ray, model_input, config.cloudy) for model_input in model_inputs}
@@ -169,7 +176,10 @@ if __name__ == "__main__":
             msg = "Success" if result.success else f"Error: {result.reason}"
             console.log(f"Cloudy Model {result.run_id}: {msg}")  # explicitly catches errors
 
-            results.append(result)
+            write_result(out=out, result=result)
+
+            if result.success:
+                successes += 1
 
     console.log("All Cloudy Models Finished!")
-    console.log(f"{len([res for res in results if res.success])}/{n_rays} models succeeded.")
+    console.log(f"{successes}/{n_rays} models succeeded.")
