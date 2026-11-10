@@ -20,11 +20,21 @@ import healpy as hp
 import numpy as np
 
 
+def get_output_filename(config: CloudyConfig) -> Path:
+    """
+    Gets the output HDF5 filename of a run.
+    """
+    suffix = "_hom" if config.homogeneous else ""
+    path = config.output_dir / f"{config.star}_{config.star_age_myr}Myr{suffix}.h5"
+
+    return path
+
+
 def create_output_file(config: CloudyConfig, force: bool = True) -> Path:
     """
     Creates the output HDF5 file at `output_dir` / `{star}_{age}`.
     """
-    output_path = config.output_dir / f"{config.star}_{config.star_age_myr!s}Myr.h5"
+    output_path = get_output_filename(config=config)
 
     if output_path.exists():
         if force:

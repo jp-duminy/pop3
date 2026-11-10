@@ -156,7 +156,7 @@ if __name__ == "__main__":
         )
     )
     output_path = create_output_file(config=config.cloudy, force=args.force)
-    console.log(f"Created file for outputs at {output_path}")
+    console.log(f"Outputs will be written to {output_path}")
     n_rays = hp.nside2npix(config.cloudy.n_side)
     successes = 0
 

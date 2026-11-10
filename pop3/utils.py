@@ -31,6 +31,7 @@ FILEPATHS = frozenset(
         "data_dir",
         "mpl_style",
         "snap_dir",
+        "plot_dir",
     }
 )
 
@@ -98,6 +99,7 @@ class CloudyConfig:
     cloudy_dir: Path
     datafile_dir: Path
     output_dir: Path
+    plot_dir: Path
     timeout_s: float
     snap_dir: Path
     star: str

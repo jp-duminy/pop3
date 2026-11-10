@@ -5,6 +5,7 @@ cloudy:
   datafile_dir: ~/mphys/data/cloudy_datafiles
   output_dir: ~/mphys/data/cloudy_outputs
   snap_dir: /cephfs2/brs/pop2-prime/cc_512_no_dust_continue
+  plot_dir: ~/mphys/plots/cloudy_plots
   timeout_s: 3600.0
   star: POP3-379
   star_age_myr: 2.5
