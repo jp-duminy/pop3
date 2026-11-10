@@ -15,11 +15,15 @@ from pathlib import Path
 
 import h5py
 import matplotlib.pyplot as plt
+import numpy as np
 import polars as pl
 
 from ..utils import instantiate_console, load_config, parse_args
+from .commands import DlawTable, TlawTable
 from .data_storage import get_output_filename
+from .parsers import read_nomoto_table
 from .ray_extraction import create_cloudy_tasks
+from .rays_to_commands import build_cloudy_cmds
 from .run_cloudy_models import get_star
 
 PANEL_LABELS: list[tuple[str, str]] = [
@@ -126,6 +130,96 @@ def plot_cloudy_overview(h5_path: Path, console: Console, config: CloudyConfig) 
     console.log(f"Saved Cloudy .ovr file plot to {output_path}")
 
 
+def plot_cloudy_residual(config: Pop3Config, console: Console) -> None:
+    """
+    Plots a residual for the yt ray against what Cloudy calculated.
+    """
+    ledger = pl.read_parquet(config.stars.ledger_path)
+    star_pos, redshift, snapshot = get_star(ledger=ledger, config=config.cloudy, console=console)
+    snap_path: Path = config.cloudy.snap_dir / snapshot / snapshot
+    h5_path = get_output_filename(config=config.cloudy)
+    output_path = config.cloudy.plot_dir / f"{h5_path.stem}_residual.png"
+    yields = read_nomoto_table(nomoto_path=config.cloudy.datafile_dir / "pop3_metals.tsv", config=config)
+
+    ray = next(  # take first ray
+        create_cloudy_tasks(
+            snap_path=snap_path,
+            star_pos_unitary=star_pos,
+            ray_length_kpc=config.cloudy.ray_length_kpc,
+            homogeneous=False,
+            n_side=config.cloudy.n_side,
+        )
+    )
+
+    cmds = build_cloudy_cmds(
+        ray=ray,
+        yields=yields,
+        redshift=redshift,
+        config=config.cloudy,
+    )
+
+    # what Cloudy solved for
+    with h5py.File(h5_path, "r") as f:
+        overview_group = f["cloudy_data/ovr"]
+        starts = overview_group["starts"][:]
+        lengths = overview_group["lengths"][:]
+
+        zero_slice = slice(starts[0], starts[0] + lengths[0])
+
+        # all come  out linear
+        temp = overview_group["Te"][zero_slice]
+        hden = overview_group["hden"][zero_slice]
+        cloudy_depth = overview_group["depth"][zero_slice]
+
+    # what was fed in
+    dlaw = next(cmd for cmd in cmds if isinstance(cmd, DlawTable))
+    tlaw = next(cmd for cmd in cmds if isinstance(cmd, TlawTable))
+
+    log_cloudy_depth = np.log10(cloudy_depth)
+
+    # Cloudy interpolates in log-log; reproduce the same effect
+    reproduced_t_interp = np.interp(
+        log_cloudy_depth,
+        tlaw.log_path_lengths,
+        tlaw.log_temperatures,
+    )
+    tlaw_residual = reproduced_t_interp - np.log10(temp)
+
+    reproduced_d_interp = np.interp(
+        log_cloudy_depth,
+        dlaw.log_path_lengths,
+        dlaw.log_densities,
+    )
+    dlaw_residual = reproduced_d_interp - np.log10(hden)
+
+    fig, (ax_temp, ax_dens) = plt.subplots(nrows=2, ncols=1, sharex=True)
+
+    ax_temp.plot(cloudy_depth, tlaw_residual, label="Residual")
+    ax_dens.plot(cloudy_depth, dlaw_residual, label="Residual")
+    for ax in (ax_temp, ax_dens):
+        ax.axhline(0, color="grey", ls="--", lw=0.8)
+
+    ax_dens.set_xlabel("Depth [cm]")
+    ax_dens.set_xscale("log")
+    ax_dens.set_xlim(X_LIM)
+    ax_temp.set_ylabel(r"$T$ [K]")
+    ax_dens.set_ylabel(r"$n_\mathrm{H}$ [cm$^{-3}$]")
+    annotation = f"Cloudy: {lengths[0]} zones\nYT Ray: {ray.depth.size} cells"
+    ax_temp.text(
+        0.02,
+        0.95,
+        annotation,
+        transform=ax_temp.transAxes,
+        va="top",
+        ha="left",
+        bbox={"boxstyle": "round", "facecolor": "white", "edgecolor": "grey", "alpha": 0.8},
+    )
+    fig.suptitle("Cloudy and YT Ray Tlaw and Dlaw Residuals")
+    fig.savefig(output_path, bbox_inches="tight")
+    plt.close(fig)
+    console.log(f"Saved residual plot to {output_path}")
+
+
 if __name__ == "__main__":
     args = parse_args()
     console = instantiate_console()
@@ -142,4 +236,9 @@ if __name__ == "__main__":
         h5_path=h5_path,
         console=console,
         config=config.cloudy,
+    )
+
+    plot_cloudy_residual(
+        config=config,
+        console=console,
     )
