@@ -171,6 +171,7 @@ def plot_cloudy_residual(config: Pop3Config, console: Console) -> None:
         hden = overview_group["hden"][zero_slice]
         cloudy_depth = overview_group["depth"][zero_slice]
 
+    cloudy_depth = align_cloudy_depth(cloudy_depth=cloudy_depth)
     # what was fed in
     dlaw = next(cmd for cmd in cmds if isinstance(cmd, DlawTable))
     tlaw = next(cmd for cmd in cmds if isinstance(cmd, TlawTable))
@@ -194,17 +195,18 @@ def plot_cloudy_residual(config: Pop3Config, console: Console) -> None:
 
     fig, (ax_temp, ax_dens) = plt.subplots(nrows=2, ncols=1, sharex=True)
 
-    ax_temp.plot(cloudy_depth, tlaw_residual, label="Residual")
-    ax_dens.plot(cloudy_depth, dlaw_residual, label="Residual")
+    ax_temp.plot(cloudy_depth, tlaw_residual)
+    ax_dens.plot(cloudy_depth, dlaw_residual)
     for ax in (ax_temp, ax_dens):
         ax.axhline(0, color="grey", ls="--", lw=0.8)
+        ax.set_ylim(-0.15, +0.15)
 
     ax_dens.set_xlabel("Depth [cm]")
     ax_dens.set_xscale("log")
     ax_dens.set_xlim(X_LIM)
     ax_temp.set_ylabel(r"$T$ [K]")
     ax_dens.set_ylabel(r"$n_\mathrm{H}$ [cm$^{-3}$]")
-    annotation = f"Cloudy: {lengths[0]} zones\nYT Ray: {ray.depth.size} cells"
+    annotation = f"Cloudy zones: {lengths[0]}\nRay cells: {ray.depth.size}"
     ax_temp.text(
         0.02,
         0.95,
@@ -218,6 +220,21 @@ def plot_cloudy_residual(config: Pop3Config, console: Console) -> None:
     fig.savefig(output_path, bbox_inches="tight")
     plt.close(fig)
     console.log(f"Saved residual plot to {output_path}")
+
+
+def align_cloudy_depth(
+    cloudy_depth: np.ndarray,
+) -> np.ndarray:
+    """
+    Cloudy evaluates outwards from r0. The stated depth in the .ovr file is the midpoint, but the law is evaluated
+    at the outer edge of each zone; this function realigns the depth array to what Cloudy evaluated.
+    """
+    # cloudy_depth is the midpoint -> 0.5 * (x_i + x_(i+1)) gives approximate right edge
+    edges = 0.5 * (cloudy_depth[:-1] + cloudy_depth[1:])
+    # recreate the edge of the final bin
+    outer_edges = np.concatenate((edges, [2.0 * cloudy_depth[-1] - edges[-1]]))
+
+    return outer_edges
 
 
 if __name__ == "__main__":
