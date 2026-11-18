@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 
     from ..utils import CloudyConfig, Pop3Config
 
+from dataclasses import replace
 from pathlib import Path
 
 import h5py
@@ -36,6 +37,12 @@ CLOUDY_PANEL_LABELS: list[tuple[str, str]] = [
     ("eden", r"$n_\mathrm{e}$ [cm$^{-3}$]"),
     ("hden", r"$n_\mathrm{H}$ [cm$^{-3}$]"),
 ]
+COMPARISON_PANEL_LABELS: list[tuple[str, str]] = [
+    ("Te", r"$\Delta \log T$"),
+    ("hden", r"$\Delta \log n_\mathrm{H}$"),
+    ("eden", r"$\Delta \log n_\mathrm{e}$"),
+]
+LOG_FLOOR = 1e-30
 X_LIM = 5e17  # radius [cm] where xlim starts (Cloudy interpolates a large range)
 
 MNRAS_STYLE = Path.home() / "mnras.mplstyle"
@@ -222,6 +229,77 @@ def plot_cloudy_residual(config: Pop3Config, console: Console) -> None:
     console.log(f"Saved residual plot to {output_path}")
 
 
+def read_overview_runs(h5_path: Path, columns: list[str]) -> list[dict[str, np.ndarray] | None]:
+    """
+    Helper for getting the overviews back from the file.
+    """
+    with h5py.File(h5_path, "r") as f:
+        overview_group = f["cloudy_data/ovr"]
+        starts = overview_group["starts"][:]
+        lengths = overview_group["lengths"][:]
+        flat = {name: overview_group[name][:] for name in ["depth", *columns]}
+
+    runs: list[dict[str, np.ndarray] | None] = []
+    for start, length in zip(starts, lengths, strict=True):
+        run_slice = slice(start, start + length)
+        runs.append({name: values[run_slice] for name, values in flat.items()} if length > 0 else None)
+
+    return runs
+
+
+def plot_hom_ray_residual(config: CloudyConfig, console: Console) -> None:
+    """
+    Plots the per-ray residuals for the homogeneous vs ray-traced case on the config.
+    """
+    columns = [name for name, _ in COMPARISON_PANEL_LABELS]
+    tab_path = get_output_filename(config=replace(config, homogeneous=False))
+    hom_path = get_output_filename(config=replace(config, homogeneous=True))
+    output_path = config.plot_dir / f"{hom_path.stem}_vs_ray_residual.png"
+
+    tab_runs = read_overview_runs(h5_path=tab_path, columns=columns)
+    hom_runs = read_overview_runs(h5_path=hom_path, columns=columns)
+    # reaching into cycler for this one because rank 4 fails
+    cycle_colours = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+
+    fig, axes = plt.subplots(nrows=len(COMPARISON_PANEL_LABELS), ncols=1, sharex=True)
+
+    for run_id, (tab, hom) in enumerate(zip(tab_runs, hom_runs, strict=True)):
+        if tab is None or hom is None:
+            continue
+        # make both rays the same number of data points depending on which hit stop first
+        overlap_end = min(tab["depth"][-1], hom["depth"][-1])
+        in_overlap = tab["depth"] <= overlap_end
+        log_depth_tab = np.log10(tab["depth"][in_overlap])
+        log_depth_hom = np.log10(hom["depth"])
+
+        # same logic as above funcs
+        for axis, name in zip(axes, columns, strict=True):
+            log_tab = np.log10(np.maximum(tab[name][in_overlap], LOG_FLOOR))
+            log_hom = np.log10(np.maximum(hom[name], LOG_FLOOR))
+            log_hom_on_tab = np.interp(log_depth_tab, log_depth_hom, log_hom)
+            axis.plot(
+                10**log_depth_tab,
+                log_hom_on_tab - log_tab,
+                color=cycle_colours[run_id % len(cycle_colours)],
+                lw=0.8,
+                alpha=0.6,
+                label=f"{run_id}",
+            )
+
+    for axis, (_, axis_label) in zip(axes, COMPARISON_PANEL_LABELS, strict=True):
+        axis.axhline(0.0, color="grey", ls="--", lw=0.8)
+        axis.set_ylabel(axis_label)
+
+    axes[-1].set_xscale("log")
+    axes[-1].set_xlim(X_LIM)
+    axes[-1].set_xlabel(r"Depth [cm]")
+    axes[0].legend(title="Run IDs", ncols=3, fontsize="x-small")  # legend is quite obstructive
+    fig.suptitle(rf"Homogeneous $-$ Ray-Traced Models: {config.star} at {config.star_age_myr}Myr")
+    fig.savefig(output_path, bbox_inches="tight")
+    plt.close(fig)
+    console.log(f"Saved homogeneous vs ray-traced residual plot to {output_path}")
+
+
 def align_cloudy_depth(
     cloudy_depth: np.ndarray,
 ) -> np.ndarray:
@@ -257,5 +335,9 @@ if __name__ == "__main__":
 
     plot_cloudy_residual(
         config=config,
+        console=console,
+    )
+    plot_hom_ray_residual(
+        config=config.cloudy,
         console=console,
     )
