@@ -6,13 +6,17 @@ cloudy:
   output_dir: ~/mphys/data/cloudy_outputs
   snap_dir: /cephfs2/brs/pop2-prime/cc_512_no_dust_continue
   plot_dir: ~/mphys/plots/cloudy_plots
+  sed_path: ~/mphys/data/cloudy_datafiles/schaerer_bands.sed
+  sed_type: SCHAERER-BANDS
   timeout_s: 3600.0
   star: POP3-379
   star_age_myr: 2.5
-  ray_length_kpc: 1.0
+  ray_length_kpc: 2.0
   primordial_XH: 0.752
   efrac_threshold: 0.01
   density_tolerance: 2.0e-4
+  n_iterations: None  # set to None for one calculation
+  iterate_to_convergence: False
   use_cosmic_rays: true
   n_side: 1  # n_rays = 12 * n_side**2
   homogeneous: false

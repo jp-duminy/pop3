@@ -22,10 +22,12 @@ from .commands import (
     DlawTable,
     ElementAbundance,
     ElementTable,
+    Iterate,
     RadSource,
     SetDensityTolerance,
     SphereGeometry,
     StopCondition,
+    TableSED,
     TlawTable,
 )
 from .ray_extraction import RayArrays, RayHomogeneous
@@ -57,9 +59,7 @@ def build_cloudy_cmds(
             r0=ray.r0,
             log_max_depth=log_max_depth,
             redshift=redshift,
-            stop_efrac=config.efrac_threshold,
-            cosmic_rays=config.use_cosmic_rays,
-            density_tol=config.density_tolerance,
+            config=config,
         )
     )
 
@@ -133,18 +133,31 @@ def common_cmds(
     r0: float,
     log_max_depth: float,
     redshift: float,
-    stop_efrac: float,
-    cosmic_rays: bool,
-    density_tol: float,
+    config: CloudyConfig,
 ) -> list[CloudyCommand]:
     """
     Builds commands which are agnostic to the arrays vs homogeneity choice.
     """
     cmds: list[CloudyCommand] = []
     cmds.append(SphereGeometry(log_inner_radius=np.log10(r0)))
-    cmds.append(StopCondition(electron_frac=stop_efrac, log_max_depth=log_max_depth))
-    cmds.append(Background(redshift=redshift, use_cosmic_rays=cosmic_rays))
-    cmds.append(RadSource(shape=Blackbody(log_temperature=4.9), log_q_hydrogen=49.4))  # schaerer+2003 vals
-    cmds.append(SetDensityTolerance(relative_tolerance=density_tol))
+    cmds.append(StopCondition(electron_frac=config.efrac_threshold, log_max_depth=log_max_depth))
+    cmds.append(Background(redshift=redshift, use_cosmic_rays=config.use_cosmic_rays))
+    cmds.append(SetDensityTolerance(relative_tolerance=config.density_tolerance))
+
+    if config.n_iterations is not None:
+        cmds.append(Iterate(n_iterations=config.n_iterations, to_convergence=config.iterate_to_convergence))
+
+    # SED command
+    log_q_hydrogen = np.log10(2.469e49)  # this number is branded on my brain
+
+    match config.sed_type:
+        case "BLACKBODY":
+            shape = Blackbody(log_temperature=4.9)
+        case "SCHAERER-BANDS":
+            shape = TableSED(sed_path=config.sed_path)
+        case _:
+            raise ValueError("Unknown SED type :(")
+
+    cmds.append(RadSource(shape=shape, log_q_hydrogen=log_q_hydrogen))
 
     return cmds

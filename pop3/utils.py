@@ -32,6 +32,7 @@ FILEPATHS = frozenset(
         "mpl_style",
         "snap_dir",
         "plot_dir",
+        "sed_path",
     }
 )
 
@@ -102,6 +103,8 @@ class CloudyConfig:
     plot_dir: Path
     timeout_s: float
     snap_dir: Path
+    sed_path: Path
+    sed_type: str
     star: str
     star_age_myr: float
     ray_length_kpc: float
@@ -110,6 +113,8 @@ class CloudyConfig:
     use_cosmic_rays: bool = True
     efrac_threshold: float = 0.01  # fergus' choice
     density_tolerance: float = 1.0e-5
+    n_iterations: int | None = None
+    iterate_to_convergence: bool = False
     homogeneous: bool = False
     store_overview: bool = True
     store_continuum: bool = True

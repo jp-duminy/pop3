@@ -357,3 +357,34 @@ class SaveCmd(CloudyCommand):
             commands.append(f'save line list last "{self.run_id}.lin" "{self.linelist.name}"')
 
         return "\n".join(commands)
+
+
+@dataclass(frozen=True, slots=True)
+class Iterate(CloudyCommand):
+    """
+    Controls Cloudy's iteration command. This command switches on the iteration functionality, which
+    enforces the code to perform a second iteration even with `iterate 0`. To avoid confusion, this
+    command interface enforces that `n_iterations` represents the total number of calculations: if entering
+    1 calculation, it will raise an error (simply omit this command).
+
+    If `to_convergence` is `True`, `n_iterations` represents the maximum number; otherwise, it represents the
+    absolute number.
+    """
+
+    n_iterations: int = 10
+    to_convergence: bool = False
+
+    def __post_init__(self) -> None:
+
+        if self.n_iterations < 2:
+            raise ValueError("n_iterations must be >= 2 or omitted; see docstring for details.")
+
+    def __str__(self) -> str:
+
+        if self.to_convergence:
+            cmd = f"iterate to convergence {self.n_iterations}"
+
+        else:
+            cmd = f"iterate {self.n_iterations}"
+
+        return cmd
