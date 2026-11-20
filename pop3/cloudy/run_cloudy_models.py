@@ -30,6 +30,73 @@ from .ray_extraction import RayArrays, RayHomogeneous, create_cloudy_tasks
 from .rays_to_commands import build_cloudy_cmds
 
 
+def run_stardust(
+    star_name: str,
+    star_age_myr: float,
+    config: CloudyConfig,
+    executor: MPIPoolExecutor,
+    ledger: pl.DataFrame,
+    yields: dict[str, float],
+    console: Console,
+    force: bool,
+) -> tuple[Path, int]:
+    """
+    One run of the Stardust algorithm on a single star. Locates snapshot by matching age, casts rays,
+    dispatches rays to workers, and makes the Cloudy models. Returns:
+
+    - the output path
+    - the number of successes
+    """
+    star_pos, redshift, snapshot = get_star(
+        ledger=ledger, star_name=star_name, star_age_myr=star_age_myr, console=console
+    )
+    snap_path: Path = config.misc.snap_dir / snapshot / snapshot
+
+    # prepare sightlines -> turn into yt rays -> iterator which workers can take Cloudy tasks from
+    console.log("Preparing Sightlines.")
+    model_inputs = (
+        ModelInput(run_ID=run_id, ray=ray, yields=yields, redshift=redshift)
+        for run_id, ray in enumerate(
+            create_cloudy_tasks(
+                snap_path=snap_path,
+                star_pos_unitary=star_pos,
+                ray_length_kpc=config.star.ray_length_kpc,
+                homogeneous=config.physics.homogeneous,
+                n_side=config.star.n_side,
+            )
+        )
+    )
+    output_path = create_output_file(config=config, force=force, star_name=star_name, star_age_myr=star_age_myr)
+    console.log(f"Outputs will be written to {output_path}")
+    n_rays = hp.nside2npix(config.star.n_side)
+    successes = 0
+
+    # progress bar + mpi worker pool (cloud emoji on the progress bar is rumoured to speed up cloudy)
+    with (
+        my_progress(console=console, spinner="weather") as progress,
+        h5py.File(output_path, "r+") as out,  # NOT "w" mode
+    ):
+        task_id = progress.add_task("Running Cloudy Models", total=n_rays)
+        # workers grab rays as rank 0 delivers them (create_cloudy_tasks() delivers an iterator)
+        futures = {executor.submit(run_ray, model_input, config) for model_input in model_inputs}
+
+        for future in as_completed(futures):
+            result = future.result()
+            progress.advance(task_id)
+            msg = "Success" if result.success else f"Error: {result.reason}"
+            console.log(f"Cloudy Model {result.run_id}: {msg}")  # explicitly catches errors
+
+            write_result(out=out, result=result)
+
+            if result.success:
+                successes += 1
+
+    console.log("All Cloudy Models Finished!")
+    console.log(f"{successes}/{n_rays} models succeeded.")
+
+    return output_path, successes
+
+
 class ModelInput(NamedTuple):
     """
     Little container for the inputs to a Cloudy model.
@@ -46,7 +113,9 @@ class ModelInput(NamedTuple):
     run_ID: int
 
 
-def get_star(ledger: pl.DataFrame, config: CloudyConfig, console: Console) -> tuple[np.ndarray, float, str]:
+def get_star(
+    ledger: pl.DataFrame, star_name: str, star_age_myr: float, console: Console
+) -> tuple[np.ndarray, float, str]:
     """
     Uses the config and the ledger to find the requested star. Returns:
 
@@ -54,15 +123,15 @@ def get_star(ledger: pl.DataFrame, config: CloudyConfig, console: Console) -> tu
     - the redshift of the located snapshot
     - the snapshot name
     """
-    console.log(f"Finding star {config.star} in the snapshot where its age is closest to {config.star_age_myr} Myr")
+    console.log(f"Finding star {star_name} in the snapshot where its age is closest to {star_age_myr} Myr")
 
-    target = pl.DataFrame({"label": [config.star], "target_age_myr": [config.star_age_myr]}).sort(
+    target = pl.DataFrame({"label": [star_name], "target_age_myr": [star_age_myr]}).sort(
         "target_age_myr"
     )  # both dfs must be sorted by the on key in join_asof()
 
     star_rows = (
         ledger.select("label", "age_myr", "snapshot", "redshift", "positions_unitary", "is_alive")
-        .filter((pl.col("label") == config.star) & pl.col("is_alive"))  # make sure we select the star and it is alive
+        .filter((pl.col("label") == star_name) & pl.col("is_alive"))  # make sure we select the star and it is alive
         .sort("age_myr")  # see above comment
     )
 
@@ -108,9 +177,9 @@ def run_ray(
     )
     save_cmd = SaveCmd(
         run_id=model_input.run_ID,
-        overview=config.store_overview,
-        continuum=config.store_continuum,
-        linelist=config.datafile_dir / "linelist.dat" if config.store_lines else None,
+        overview=config.misc.store_overview,
+        continuum=config.misc.store_continuum,
+        linelist=config.physics.linelist_path if config.misc.store_lines else None,
     )
 
     # instantiate the CloudyModel object then call its methods to run a Cloudy pipeline
@@ -128,6 +197,11 @@ def run_ray(
         return CloudyResult.err(run_id=model_input.run_ID, reason="timeout")
     except OSError as error:
         return CloudyResult.err(run_id=model_input.run_ID, reason=f"io: {error}")
+    finally:  # always clean up the model's run directory (if desired)
+        if config.misc.cleanup_run_dirs:
+            for run_file in model.run_dir.iterdir():
+                run_file.unlink()  # removes symlinks without touching their targets
+            model.run_dir.rmdir()
 
 
 if __name__ == "__main__":
@@ -135,51 +209,25 @@ if __name__ == "__main__":
     args = parse_args()
     console = instantiate_console()
     config = load_config(args=args)
-    nomoto_yields = read_nomoto_table(nomoto_path=config.cloudy.datafile_dir / "pop3_metals.tsv", config=config)
+    c_config = config.cloudy
+    nomoto_yields = read_nomoto_table(nomoto_path=c_config.physics.yield_path)
     ledger = pl.read_parquet(config.stars.ledger_path)
 
-    star_pos, redshift, snapshot = get_star(ledger=ledger, config=config.cloudy, console=console)
-    snap_path: Path = config.cloudy.snap_dir / snapshot / snapshot
+    targets = c_config.star.targets
+    if c_config.star.use_first_star:
+        first_star, first_ages = next(iter(targets.items()))
+        targets = {first_star: first_ages[:1]}
 
-    # prepare sightlines -> turn into yt rays -> iterator which workers can take Cloudy tasks from
-    console.log("Preparing Sightlines.")
-    model_inputs = (
-        ModelInput(run_ID=run_id, ray=ray, yields=nomoto_yields, redshift=redshift)
-        for run_id, ray in enumerate(
-            create_cloudy_tasks(
-                snap_path=snap_path,
-                star_pos_unitary=star_pos,
-                ray_length_kpc=config.cloudy.ray_length_kpc,
-                homogeneous=config.cloudy.homogeneous,
-                n_side=config.cloudy.n_side,
-            )
-        )
-    )
-    output_path = create_output_file(config=config.cloudy, force=args.force)
-    console.log(f"Outputs will be written to {output_path}")
-    n_rays = hp.nside2npix(config.cloudy.n_side)
-    successes = 0
-
-    # progress bar + mpi worker pool (cloud emoji on the progress bar is rumoured to speed up cloudy)
-    with (
-        my_progress(console=console, spinner="weather") as progress,
-        MPIPoolExecutor() as executor,
-        h5py.File(output_path, "r+") as out,  # NOT "w" mode
-    ):
-        task_id = progress.add_task("Running Cloudy Models", total=n_rays)
-        # workers grab rays as rank 0 delivers them (create_cloudy_tasks() delivers an iterator)
-        futures = {executor.submit(run_ray, model_input, config.cloudy) for model_input in model_inputs}
-
-        for future in as_completed(futures):
-            result = future.result()
-            progress.advance(task_id)
-            msg = "Success" if result.success else f"Error: {result.reason}"
-            console.log(f"Cloudy Model {result.run_id}: {msg}")  # explicitly catches errors
-
-            write_result(out=out, result=result)
-
-            if result.success:
-                successes += 1
-
-    console.log("All Cloudy Models Finished!")
-    console.log(f"{successes}/{n_rays} models succeeded.")
+    with MPIPoolExecutor() as executor:
+        for star_name, ages in targets.items():
+            for star_age_myr in ages:
+                run_stardust(
+                    star_name=star_name,
+                    star_age_myr=star_age_myr,
+                    config=c_config,
+                    executor=executor,
+                    ledger=ledger,
+                    yields=nomoto_yields,
+                    console=console,
+                    force=args.force,
+                )

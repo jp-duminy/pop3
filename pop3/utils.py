@@ -8,6 +8,7 @@ import argparse
 import logging
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any
 
 import yt
 from rich.console import Console
@@ -19,9 +20,6 @@ DEFAULT_CONFIG_PATH = Path(__file__).parent / "config.yaml"
 
 FILEPATHS = frozenset(
     {
-        "cloudy_dir",
-        "datafile_dir",
-        "output_dir",
         "ledger_path",
         "sp_dir",
         "profile_plot_dir",
@@ -32,8 +30,11 @@ FILEPATHS = frozenset(
         "mpl_style",
         "snap_dir",
         "plot_dir",
-        "sed_path",
     }
+)
+
+CLOUDY_FILEPATHS = frozenset(
+    {"linelist_path", "yield_path", "sed_path", "snap_dir", "cloudy_src_dir", "output_dir", "plot_dir"}
 )
 
 
@@ -74,18 +75,11 @@ class Pop3Config:
         # make the star list a tuple so it is also immutable
         raw["stars"]["process_stars"] = tuple(raw["stars"].get("process_stars") or ())
 
-        # turn the strs in the yaml into Path objects
-        for _, entries in raw.items():
-            for key in FILEPATHS:
-                entries: dict
-                if entries.get(key) is not None:
-                    entries[key] = Path(entries[key]).expanduser()
-
         config = Pop3Config(
-            cloudy=CloudyConfig(**raw["cloudy"]),
-            plots=PlotConfig(**raw["plots"]),
-            stars=StarConfig(**raw["stars"]),
-            spheres=SphereConfig(**raw["spheres"]),
+            cloudy=CloudyConfig.from_dict(raw["cloudy"]),
+            plots=PlotConfig(**_convert_paths(raw["plots"], FILEPATHS)),
+            stars=StarConfig(**_convert_paths(raw["stars"], FILEPATHS)),
+            spheres=SphereConfig(**_convert_paths(raw["spheres"], FILEPATHS)),
         )
 
         return config
@@ -94,28 +88,98 @@ class Pop3Config:
 @dataclass(frozen=True, slots=True)
 class CloudyConfig:
     """
-    Contains Cloudy-specific parameters.
+    Contains the three Cloudy-related configs.
+
+    - physics: `CloudyPhysicsConfig`
+    - target: `CloudyStarConfig`
+    - misc: `CloudyMiscConfig`
     """
 
-    cloudy_dir: Path
-    datafile_dir: Path
-    output_dir: Path
-    plot_dir: Path
-    timeout_s: float
-    snap_dir: Path
+    physics: CloudyPhysicsConfig
+    star: CloudyStarConfig
+    misc: CloudyMiscConfig
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, dict[str, Any]]) -> CloudyConfig:
+        """
+        Converts the YAML nested dictionary into a `CloudyConfig` object.
+        """
+        # targets in the YAML file is a dict keyed by star name of a list of ages
+        yaml_targets: dict[str, list] = raw["sim"]["targets"]
+        # make the star list a tuple so it is also immutable
+        targets = {star: tuple(ages) for star, ages in yaml_targets.items()}
+
+        config = cls(
+            physics=CloudyPhysicsConfig(**_convert_paths(raw["physics"], CLOUDY_FILEPATHS)),
+            star=CloudyStarConfig(**(raw["sim"] | {"targets": targets})),
+            misc=CloudyMiscConfig(**_convert_paths(raw["misc"], CLOUDY_FILEPATHS)),
+        )
+
+        return config
+
+    def update_physics_params(self, **changes: Any) -> CloudyConfig:
+        """
+        Updates the physics section (`CloudyPhysicsConfig`) with any specified keywork arguments.
+        Returns a new `CloudyConfig`.
+        """
+        return replace(self, physics=replace(self.physics, **changes))
+
+
+@dataclass(frozen=True, slots=True)
+class CloudyPhysicsConfig:
+    """
+    Physics-related parameters for a specific `CloudyModel` run.
+
+    Default notes:
+
+
+    - use_cosmic_rays = True, for numerical stability
+    - efrac_threshold = 0.01, per Fergus/Nakajima
+    - density_tolerance = 1.0e-5, Hazy default
+    - n_iterations = None, one calculation
+    """
+
+    linelist_path: Path
+    yield_path: Path
     sed_path: Path
     sed_type: str
-    star: str
-    star_age_myr: float
-    ray_length_kpc: float
-    primordial_XH: float
-    n_side: int = 8  # enzo's choice
     use_cosmic_rays: bool = True
     efrac_threshold: float = 0.01  # fergus' choice
     density_tolerance: float = 1.0e-5
     n_iterations: int | None = None
-    iterate_to_convergence: bool = False
     homogeneous: bool = False
+    iterate_to_convergence: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class CloudyStarConfig:
+    """
+    Parameters relating to the star ray extraction.
+
+    Default notes:
+
+    - ray_length_kpc = 1.0, for quick checks
+    - n_side = 8 -> 768 rays, same as Enzo
+    """
+
+    targets: dict[str, tuple[float, ...]]
+    ray_length_kpc: float = 1.0
+    n_side: int = 8  # enzo's choice
+    use_first_star: bool = False  # lazy option
+
+
+@dataclass(frozen=True, slots=True)
+class CloudyMiscConfig:
+    """
+    Directories, filepaths, what to store, etc. for `CloudyModel`.
+    """
+
+    snap_dir: Path
+    cloudy_src_dir: Path
+    output_dir: Path
+    plot_dir: Path
+    timeout_s: float
+    cleanup_run_dirs: bool = False
     store_overview: bool = True
     store_continuum: bool = True
     store_lines: bool = True
@@ -217,3 +281,16 @@ def my_progress(console: Console, spinner: str = "earth") -> Progress:
         TimeElapsedColumn(),
         console=console,
     )
+
+
+def _convert_paths(section: dict[str, Any], path_keys: frozenset[str]) -> dict[str, Any]:
+    """
+    Helper for iterating over a YAML file section and, if am key is in `path_keys`, convert it
+    to a `Path` object with the user shortcut expanded so it represents an absolute path.
+    """
+    result = {
+        key: Path(value).expanduser() if key in path_keys and value is not None else value
+        for key, value in section.items()
+    }
+
+    return result

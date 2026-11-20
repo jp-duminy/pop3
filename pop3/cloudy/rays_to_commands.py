@@ -42,12 +42,12 @@ def build_cloudy_cmds(
     """
     Converts a ray object into the associated `CloudyCommand` objects for the `CloudyModel`
     """
-    expected_type = RayHomogeneous if config.homogeneous else RayArrays
+    expected_type = RayHomogeneous if config.physics.homogeneous else RayArrays
 
     if not isinstance(ray, expected_type):
         raise ValueError("The config and passed type of ray disagree.")
 
-    if config.homogeneous:
+    if config.physics.homogeneous:
         cmds = homogeneous_to_cmds(ray_hom=ray, yields=yields)
         log_max_depth = np.log10(ray.depth)
     else:
@@ -138,23 +138,24 @@ def common_cmds(
     """
     Builds commands which are agnostic to the arrays vs homogeneity choice.
     """
+    physics = config.physics
     cmds: list[CloudyCommand] = []
     cmds.append(SphereGeometry(log_inner_radius=np.log10(r0)))
-    cmds.append(StopCondition(electron_frac=config.efrac_threshold, log_max_depth=log_max_depth))
-    cmds.append(Background(redshift=redshift, use_cosmic_rays=config.use_cosmic_rays))
-    cmds.append(SetDensityTolerance(relative_tolerance=config.density_tolerance))
+    cmds.append(StopCondition(electron_frac=physics.efrac_threshold, log_max_depth=log_max_depth))
+    cmds.append(Background(redshift=redshift, use_cosmic_rays=physics.use_cosmic_rays))
+    cmds.append(SetDensityTolerance(relative_tolerance=physics.density_tolerance))
 
-    if config.n_iterations is not None:
-        cmds.append(Iterate(n_iterations=config.n_iterations, to_convergence=config.iterate_to_convergence))
+    if physics.n_iterations is not None:
+        cmds.append(Iterate(n_iterations=physics.n_iterations, to_convergence=physics.iterate_to_convergence))
 
     # SED command
     log_q_hydrogen = np.log10(2.469e49)  # this number is branded on my brain
 
-    match config.sed_type:
+    match physics.sed_type:
         case "BLACKBODY":
             shape = Blackbody(log_temperature=4.9)
         case "SCHAERER-BANDS":
-            shape = TableSED(sed_path=config.sed_path)
+            shape = TableSED(sed_path=physics.sed_path)
         case _:
             raise ValueError("Unknown SED type :(")
 

@@ -1,41 +1,58 @@
 # configuration file for params
 
 cloudy:
-  cloudy_dir: ~/astro_builds/cloudy
-  datafile_dir: ~/mphys/data/cloudy_datafiles
-  output_dir: ~/mphys/data/cloudy_outputs
-  snap_dir: /cephfs2/brs/pop2-prime/cc_512_no_dust_continue
-  plot_dir: ~/mphys/plots/cloudy_plots
-  sed_path: ~/mphys/data/cloudy_datafiles/schaerer_bands.sed
-  sed_type: SCHAERER-BANDS
-  timeout_s: 3600.0
-  star: POP3-379
-  star_age_myr: 2.5
-  ray_length_kpc: 2.0
-  primordial_XH: 0.752
-  efrac_threshold: 0.01
-  density_tolerance: 2.0e-4
-  n_iterations: None  # set to None for one calculation
-  iterate_to_convergence: False
-  use_cosmic_rays: true
-  n_side: 1  # n_rays = 12 * n_side**2
-  homogeneous: false
-  store_overview: true
-  store_continuum: true
-  store_lines: true
 
+  physics:
+
+    n_iterations:   # set to None (i.e. leave empty) for one calculation
+    iterate_to_convergence: False
+    efrac_threshold: 0.01
+    density_tolerance: 2.0e-4
+    homogeneous: false
+    use_cosmic_rays: true
+    sed_type: SCHAERER-BANDS
+    sed_path: ~/mphys/data/cloudy_datafiles/schaerer_bands.sed
+    linelist_path: ~/mphys/data/cloudy_datafiles/linelist.dat
+    yield_path: ~/mphys/data/cloudy_datafiles/pop3_metals.tsv
+
+  sim:
+
+    targets:
+      POP3-379:
+        [2.5]
+    n_side: 1  # n_rays = 12 * n_side**2
+    ray_length_kpc: 1.5  # make longer than necessary since not all rays stop at equal distances
+    use_first_star: True  # only uses first listed age of first appearing star (for testing)
+
+  misc:
+
+    snap_dir: /cephfs2/brs/pop2-prime/cc_512_no_dust_continue
+    cloudy_src_dir: ~/astro_builds/cloudy
+    plot_dir: ~/mphys/plots/cloudy_plots
+    output_dir: ~/mphys/data/cloudy_outputs
+    timeout_s: 3600.0
+    cleanup_run_dirs: false
+    store_overview: true
+    store_continuum: true
+    store_lines: true
+
+
+# these are (mostly) legacy fields
 spheres:
+
   sp_dir: ~/mphys/data/spheres
   data_dir: /cephfs2/brs/pop2-prime/cc_512_no_dust_continue
   sp_radius: 1.0
   sp_radius_unit: "kpc"
 
 stars:
+
   ledger_path: ~/mphys/data/pop3_ledger.parquet
   process_stars: ["POP3-240", "POP3-379"]
   max_metallicity: 1.0e-4
 
 plots:
+
   proj_dir: ~/mphys/data/projections
   frame_dir: ~/mphys/plots/frames
   profile_plot_dir: ~/mphys/plots/profiles

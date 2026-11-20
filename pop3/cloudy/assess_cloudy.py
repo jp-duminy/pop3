@@ -7,6 +7,7 @@ Physical tests for the Cloudy pipeline.
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from matplotlib.axes import Axes
     from rich.console import Console
 
     from ..utils import CloudyConfig, Pop3Config
@@ -55,10 +56,11 @@ def plot_rays(config: Pop3Config, console: Console) -> None:
     """
     ledger = pl.read_parquet(config.stars.ledger_path)
     fig, axes = plt.subplots(nrows=3, ncols=1, sharex=True)
+    axes: list[Axes]
 
     star_pos, _, snapshot = get_star(ledger=ledger, config=config.cloudy, console=console)
     snap_path: Path = config.cloudy.snap_dir / snapshot / snapshot
-    h5_path = get_output_filename(config=config)
+    h5_path = get_output_filename(config=config.cloudy)
     output_path = config.cloudy.plot_dir / f"{h5_path.stem}_rays.png"
 
     rays = list(
@@ -315,6 +317,47 @@ def align_cloudy_depth(
     return outer_edges
 
 
+SPECTRUM_RUN_IDS: list[int] = [0, 1, 2]
+
+
+def plot_cloudy_spectrum(h5_path: Path, console: Console, config: CloudyConfig) -> None:
+    """
+    Plots the net transmitted spectrum L_lambda for a selection of runs in a run HDF5 file.
+    """
+    fig, axis = plt.subplots()
+
+    with h5py.File(h5_path, "r") as f:
+        continuum_group = f["cloudy_data/con"]
+        wavelength_angstrom = continuum_group["wavelength_angstrom"][:]
+        # h5py fancy indexing needs increasing indices; only reads the selected rows
+        luminosity = continuum_group["combined"][sorted(SPECTRUM_RUN_IDS)]
+
+        metadata = f["metadata"]
+        star = metadata.attrs["star"]
+        age_myr = metadata.attrs["star_age_myr"]
+
+    output_path = config.plot_dir / f"{h5_path.stem}_spectrum.png"
+
+    # mask zeros (absorbed / outside SED bands) so log axis gaps rather than clips; failed runs are already NaN
+    luminosity_masked = np.where(luminosity > 0.0, luminosity, np.nan)
+
+    for run_id, run_luminosity in zip(sorted(SPECTRUM_RUN_IDS), luminosity_masked, strict=True):
+        if np.all(np.isnan(run_luminosity)):
+            console.log(f"Run {run_id} has no continuum (failed); skipping")
+            continue
+        axis.plot(wavelength_angstrom, run_luminosity, label=f"{run_id}", lw=0.8, alpha=0.8)
+
+    axis.set_xscale("log")
+    axis.set_yscale("log")
+    axis.set_xlabel(r"$\lambda$ [$\mathrm{\AA}$]")
+    axis.set_ylabel(r"$L_\lambda$ [erg s$^{-1}$ $\mathrm{\AA}^{-1}$]")
+    axis.legend(title="Random Run IDs", fontsize="x-small")
+    fig.suptitle(f"Continuum: {star} at {age_myr}Myr")
+    fig.savefig(output_path, bbox_inches="tight")
+    plt.close(fig)
+    console.log(f"Saved Cloudy .con spectrum plot to {output_path}")
+
+
 if __name__ == "__main__":
     args = parse_args()
     console = instantiate_console()
@@ -327,6 +370,7 @@ if __name__ == "__main__":
         )
 
     h5_path = get_output_filename(config=config.cloudy)
+    """
     plot_cloudy_overview(
         h5_path=h5_path,
         console=console,
@@ -340,4 +384,10 @@ if __name__ == "__main__":
     plot_hom_ray_residual(
         config=config.cloudy,
         console=console,
+    )
+    """
+    plot_cloudy_spectrum(
+        h5_path=h5_path,
+        console=console,
+        config=config.cloudy,
     )

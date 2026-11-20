@@ -20,21 +20,21 @@ import healpy as hp
 import numpy as np
 
 
-def get_output_filename(config: CloudyConfig) -> Path:
+def get_output_filename(config: CloudyConfig, star: str, star_age_myr: float) -> Path:
     """
     Gets the output HDF5 filename of a run.
     """
-    suffix = "_hom" if config.homogeneous else ""
-    path = config.output_dir / f"{config.star}_{config.star_age_myr}Myr{suffix}.h5"
+    suffix = "_hom" if config.physics.homogeneous else ""
+    path = config.misc.output_dir / f"{star}_{star_age_myr:.3f}Myr{suffix}.h5"
 
     return path
 
 
-def create_output_file(config: CloudyConfig, force: bool = True) -> Path:
+def create_output_file(config: CloudyConfig, star_name: str, star_age_myr: float, force: bool = False) -> Path:
     """
     Creates the output HDF5 file at `output_dir` / `{star}_{age}`.
     """
-    output_path = get_output_filename(config=config)
+    output_path: Path = get_output_filename(config=config, star=star_name, star_age_myr=star_age_myr)
 
     if output_path.exists():
         if force:
@@ -43,13 +43,22 @@ def create_output_file(config: CloudyConfig, force: bool = True) -> Path:
             raise ValueError(f"Warning: {output_path} already exists!!")
 
     commit_hash = _get_git_commit()
-    n_rays = hp.nside2npix(config.n_side)
+    n_rays = hp.nside2npix(config.star.n_side)
 
     with h5py.File(output_path, "w") as out:
         metadata = out.create_group("metadata")
         metadata.attrs["n_rays"] = n_rays
 
-        for param, value in asdict(config).items():
+        run_params = (
+            asdict(config.physics)
+            | asdict(config.misc)
+            | {
+                "star": star_name,
+                "star_age_myr": star_age_myr,
+                "ray_length_kpc": config.star.ray_length_kpc,
+            }
+        )
+        for param, value in run_params.items():
             if isinstance(value, Path):  # Path objects can't go in directly
                 value = str(value)
             elif value is None:  # nor can these
@@ -62,15 +71,15 @@ def create_output_file(config: CloudyConfig, force: bool = True) -> Path:
         cloudy = out.create_group("cloudy_data")
         cloudy.create_dataset("success", shape=n_rays, dtype=np.bool_)
 
-        if config.store_overview:
+        if config.misc.store_overview:
             ovr = cloudy.create_group("ovr")
 
             for name in ["starts", "lengths"]:
                 ovr.create_dataset(name, shape=n_rays, fillvalue=0, dtype=np.int32)
 
-        if config.store_continuum:
+        if config.misc.store_continuum:
             cloudy.create_group("con")
-        if config.store_lines:
+        if config.misc.store_lines:
             cloudy.create_group("lin")
 
     return output_path

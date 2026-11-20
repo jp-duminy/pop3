@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -66,23 +67,21 @@ class CloudyModel:
     ) -> None:
 
         # directories and files
-        self.cloudy_dir = config.cloudy_dir
-        self.cloudy_exec = config.cloudy_dir / "source" / "cloudy.exe"
-        self.datafile_dir = config.datafile_dir
-        self.output_dir = config.output_dir
-
+        self.config = config
+        self.cloudy_exec = config.misc.cloudy_src_dir / "source" / "cloudy.exe"
+        self.output_dir = config.misc.output_dir
         # commands and model identifier
         self.in_cmds = in_commands
         self.save_cmd = save_command
         self.run_id = save_command.run_id
 
         # runtime parameters
-        self.timeout_s = config.timeout_s
+        self.timeout_s = config.misc.timeout_s
 
     def prepare(self) -> None:
         """
         Creates a directory for the model in `self.output_dir`; writes a corresponding .in file into this directory;
-        and creates symlinks to the datafiles in datafile_dir so Cloudy can discover them.
+        and creates symlinks to the datafiles so Cloudy can discover them.
         """
         # make a directory for inputs and outputs (set self here so not calling this method raises an error)
         run_dir = self.output_dir / str(self.run_id)
@@ -90,11 +89,7 @@ class CloudyModel:
         self.run_dir = run_dir
 
         # symlink the datafiles to run_dir so Cloudy can read them (this gave me lots of grief originally)
-        datafiles = self.datafile_dir.glob("*")
-        for file in datafiles:
-            link_path = run_dir / file.name
-            link_path.unlink(missing_ok=True)
-            link_path.symlink_to(file)
+        self._symlink_datafiles(run_dir=run_dir)
 
         create_input_file(commands=[*self.in_cmds, self.save_cmd], input_filepath=run_dir / f"{self.run_id}.in")
 
@@ -146,3 +141,19 @@ class CloudyModel:
         )
 
         return result
+
+    def _symlink_datafiles(self, run_dir: Path) -> None:
+        """
+        Symlinks existing and requested datafiles into the model's run directory.
+        """
+        physics = self.config.physics
+
+        if self.save_cmd.linelist is not None and physics.linelist_path is None:
+            raise ValueError("SaveCmd requests lines but no linelist path is specified (cloudy will error out)")
+
+        for datafile in (physics.sed_path, physics.linelist_path):
+            if datafile is None:
+                continue
+            link_path = run_dir / datafile.name
+            link_path.unlink(missing_ok=True)
+            link_path.symlink_to(datafile)
