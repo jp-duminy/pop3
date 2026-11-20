@@ -7,6 +7,8 @@ Functionality for creating a HDF5 file to store the outputs of a single Cloudy r
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from typing import Any
+
     from ..utils import CloudyConfig
     from .cloudy_model import CloudyResult
 
@@ -20,6 +22,100 @@ import healpy as hp
 import numpy as np
 
 
+class OutputCatalogue:
+    """
+    Object-oriented interface for a single HDF5 catalogue containing the outputs of Cloudy models from a single
+    star in a given snapshot with specified physics parameters.
+    """
+
+    def __init__(self, catalogue_path: Path) -> None:
+
+        self.catalogue_path = catalogue_path
+        self._file = h5py.File(catalogue_path, "r")
+        # eager load this
+        self._metadata: dict[str, Any] = dict(self._file["metadata"].attrs)
+
+    def close(self) -> None:
+        """
+        Closes the HDF5 file.
+        """
+        self._file.close()
+
+    def __repr__(self) -> str:
+        return f"Catalogue for {self.star} in {self.snapshot_path.name} ({self.star_age_myr} Myr old): {self.n_succeeded} successful runs."
+
+    def __len__(self) -> int:
+        return self._metadata["n_rays"]
+
+    @property
+    def n_succeeded(self) -> int:
+        return np.sum(self._file["cloudy_data"]["success"])
+
+    @property
+    def ray_length_kpc(self) -> float:
+        """
+        The configured ray length, in kpc, which produced this catalogue. Keep in mind this does not necessarily reflect
+        the stopping length of each ray: this is the upper bound.
+        """
+        return self._metadata["ray_length_kpc"]
+
+    @property
+    def star(self) -> str:
+        """
+        The label of the star which produced this catalogue.
+        """
+        return self._metadata["star"]
+
+    @property
+    def star_age_myr(self) -> float:
+        """
+        The true age of the star in the snapshot which this catalogue was produced from.
+        """
+        return self._metadata["star_age_myr"]
+
+    @property
+    def snapshot_path(self) -> Path:
+        """
+        `Path` object pointing to the snapshot which produced this catalogue.
+        """
+        return Path(self._metadata["snap_path"])
+
+    def successes(self) -> np.ndarray:
+        return self._file["cloudy_data"]["success"][:]
+
+    def read_overviews(self, columns: list[str]) -> list[dict[str, np.ndarray] | None]:
+        """
+        Helper for getting the overviews back from the file.
+        """
+        overview_group: h5py.Group = self._file["cloudy_data/ovr"]
+        # these aren't very big so can do everything in-memory
+        starts = overview_group["starts"][:]
+        lengths = overview_group["lengths"][:]
+        flat = {name: overview_group[name][:] for name in ["depth", *columns]}
+
+        ovrs: list[dict[str, np.ndarray] | None] = []
+        for start, length in zip(starts, lengths, strict=True):
+            run_slice = slice(start, start + length)
+            ovrs.append({name: values[run_slice] for name, values in flat.items()} if length > 0 else None)
+
+        return ovrs
+
+    def _align_cloudy_depth(
+        self,
+        cloudy_depth: np.ndarray,
+    ) -> np.ndarray:
+        """
+        Cloudy evaluates outwards from r0. The stated depth in the .ovr file is the midpoint, but the law is evaluated
+        at the outer edge of each zone; this function realigns the depth array to what Cloudy evaluated.
+        """
+        # cloudy_depth is the midpoint -> 0.5 * (x_i + x_(i+1)) gives approximate right edge
+        edges = 0.5 * (cloudy_depth[:-1] + cloudy_depth[1:])
+        # recreate the edge of the final bin
+        outer_edges = np.concatenate((edges, [2.0 * cloudy_depth[-1] - edges[-1]]))
+
+        return outer_edges
+
+
 def get_output_filename(config: CloudyConfig, star: str, star_age_myr: float) -> Path:
     """
     Gets the output HDF5 filename of a run.
@@ -30,7 +126,9 @@ def get_output_filename(config: CloudyConfig, star: str, star_age_myr: float) ->
     return path
 
 
-def create_output_file(config: CloudyConfig, star_name: str, star_age_myr: float, force: bool = False) -> Path:
+def create_output_file(
+    config: CloudyConfig, star_name: str, star_age_myr: float, snapshot_path: Path, force: bool = False
+) -> Path:
     """
     Creates the output HDF5 file at `output_dir` / `{star}_{age}`.
     """
@@ -48,6 +146,7 @@ def create_output_file(config: CloudyConfig, star_name: str, star_age_myr: float
     with h5py.File(output_path, "w") as out:
         metadata = out.create_group("metadata")
         metadata.attrs["n_rays"] = n_rays
+        metadata.attrs["snap_path"] = str(snapshot_path)  # Path object can't go in directly
 
         run_params = (
             asdict(config.physics)

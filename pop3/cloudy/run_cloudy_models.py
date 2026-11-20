@@ -47,7 +47,7 @@ def run_stardust(
     - the output path
     - the number of successes
     """
-    star_pos, redshift, snapshot = get_star(
+    star_pos, redshift, actual_age, snapshot = get_star(
         ledger=ledger, star_name=star_name, star_age_myr=star_age_myr, console=console
     )
     snap_path: Path = config.misc.snap_dir / snapshot / snapshot
@@ -66,7 +66,9 @@ def run_stardust(
             )
         )
     )
-    output_path = create_output_file(config=config, force=force, star_name=star_name, star_age_myr=star_age_myr)
+    output_path = create_output_file(
+        config=config, force=force, star_name=star_name, star_age_myr=actual_age, snapshot_path=snap_path
+    )
     console.log(f"Outputs will be written to {output_path}")
     n_rays = hp.nside2npix(config.star.n_side)
     successes = 0
@@ -115,12 +117,13 @@ class ModelInput(NamedTuple):
 
 def get_star(
     ledger: pl.DataFrame, star_name: str, star_age_myr: float, console: Console
-) -> tuple[np.ndarray, float, str]:
+) -> tuple[np.ndarray, float, float, str]:
     """
     Uses the config and the ledger to find the requested star. Returns:
 
     - pos: the star's position in unitary units
     - the redshift of the located snapshot
+    - the matched age
     - the snapshot name
     """
     console.log(f"Finding star {star_name} in the snapshot where its age is closest to {star_age_myr} Myr")
@@ -157,7 +160,7 @@ def get_star(
     console.log(f"  Position (unitary units): {pos}")
     console.log(f"  Age in this snapshot: {matched_age:.3f} Myr, {offset:.3f} Myr from input")
 
-    return pos, redshift, snapshot
+    return pos, redshift, matched_age, snapshot
 
 
 def run_ray(
