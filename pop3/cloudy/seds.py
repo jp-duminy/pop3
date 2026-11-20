@@ -92,11 +92,12 @@ if __name__ == "__main__":
     args = parse_args()
     config = load_config(args=args)
     console = instantiate_console()
+    physics = config.cloudy.physics
 
-    match config.cloudy.sed_type:
+    match physics.sed_type:
         case "SCHAERER-BANDS":
             console.log("Generating Schaerer table 4 band SED.")
             energies, fluxes = binned_schaerer_sed()
 
-    tabulate_sed(energies_eV=energies, fluxes=fluxes, sed_path=config.cloudy.sed_path, force=args.force)
-    console.log(f"SED written to {config.cloudy.sed_path}")
+    tabulate_sed(energies_eV=energies, fluxes=fluxes, sed_path=physics.sed_path, force=args.force)
+    console.log(f"SED written to {physics.sed_path}")

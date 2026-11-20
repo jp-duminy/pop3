@@ -10,7 +10,7 @@ cloudy:
     density_tolerance: 2.0e-4
     homogeneous: false
     use_cosmic_rays: true
-    sed_type: SCHAERER-BANDS
+    sed_type: SCHAERER-BANDS  # used only for generating the actual SED
     sed_path: ~/mphys/data/cloudy_datafiles/schaerer_bands.sed
     linelist_path: ~/mphys/data/cloudy_datafiles/linelist.dat
     yield_path: ~/mphys/data/cloudy_datafiles/pop3_metals.tsv
