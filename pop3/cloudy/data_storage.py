@@ -15,11 +15,13 @@ if TYPE_CHECKING:
 
 import subprocess
 from dataclasses import asdict
+from functools import cached_property
 from pathlib import Path
 
 import h5py
 import healpy as hp
 import numpy as np
+import polars as pl
 
 
 class OutputCatalogue:
@@ -49,7 +51,7 @@ class OutputCatalogue:
 
     @property
     def n_succeeded(self) -> int:
-        return np.sum(self._file["cloudy_data"]["success"])
+        return np.sum(self.successes)
 
     @property
     def ray_length_kpc(self) -> float:
@@ -80,40 +82,160 @@ class OutputCatalogue:
         """
         return Path(self._metadata["snap_path"])
 
+    @cached_property
+    def _ovr_starts(self) -> np.ndarray:
+        """
+        Index array for the start of each run in the overview dataset.
+        """
+        return self._file["cloudy_data"]["ovr"]["starts"][:]
+
+    @cached_property
+    def _ovr_lengths(self) -> np.ndarray:
+        """
+        Index array for the length of each run in the overview dataset.
+        """
+        return self._file["cloudy_data"]["ovr"]["lengths"][:]
+
+    @cached_property
+    def _ovr_datasets(self) -> dict[str, str]:
+        """
+        List of available datasets in the .ovr file. Translates the `_per_` renaming back into
+        the actual Cloudy name.
+        """
+        ovr_group = self._file["cloudy_data"]["ovr"]
+        datasets = {
+            dataset.attrs["cloudy_name"]: name for name, dataset in ovr_group.items() if "cloudy_name" in dataset.attrs
+        }
+
+        return datasets
+
+    @cached_property
+    def continuum_wavelengths(self) -> np.ndarray:
+        """
+        The full wavelengths array for aligning to the continuum file outputs. This is handled separately because otherwise
+        everything continuum-related becomes 3D and a slight memory bomb.
+        """
+        return self._file["cloudy_data"]["con"]["wavelength_angstrom"][:]
+
+    @cached_property
     def successes(self) -> np.ndarray:
+        """
+        Boolean array in run ID order of whether runs were successful or not.
+        """
         return self._file["cloudy_data"]["success"][:]
 
-    def read_overviews(self, columns: list[str]) -> list[dict[str, np.ndarray] | None]:
+    def read_single_overview(self, run_id: int, columns: list[str] | None = None) -> dict[str, np.ndarray] | None:
         """
-        Helper for getting the overviews back from the file.
+        Reads a single model's .ovr file from the HDF5 catalogue. This is mainly for analysing a single ray in post.
         """
-        overview_group: h5py.Group = self._file["cloudy_data/ovr"]
-        # these aren't very big so can do everything in-memory
-        starts = overview_group["starts"][:]
-        lengths = overview_group["lengths"][:]
-        flat = {name: overview_group[name][:] for name in ["depth", *columns]}
+        ovr_group = self._file["cloudy_data"]["ovr"]
+        start = self._ovr_starts[run_id]
+        length = self._ovr_lengths[run_id]
 
-        ovrs: list[dict[str, np.ndarray] | None] = []
-        for start, length in zip(starts, lengths, strict=True):
-            run_slice = slice(start, start + length)
-            ovrs.append({name: values[run_slice] for name, values in flat.items()} if length > 0 else None)
+        if length == 0:
+            return None
 
-        return ovrs
+        run_slice = slice(start, start + length)
+        names = columns if columns is not None else list(self._ovr_datasets)
 
-    def _align_cloudy_depth(
-        self,
-        cloudy_depth: np.ndarray,
-    ) -> np.ndarray:
-        """
-        Cloudy evaluates outwards from r0. The stated depth in the .ovr file is the midpoint, but the law is evaluated
-        at the outer edge of each zone; this function realigns the depth array to what Cloudy evaluated.
-        """
+        run_ovr = {
+            cloudy_name: ovr_group[self._ovr_datasets[cloudy_name]][run_slice]
+            for cloudy_name in ["depth", *names]  # always return depth
+        }
+        cloudy_depth = run_ovr["depth"]
         # cloudy_depth is the midpoint -> 0.5 * (x_i + x_(i+1)) gives approximate right edge
         edges = 0.5 * (cloudy_depth[:-1] + cloudy_depth[1:])
         # recreate the edge of the final bin
         outer_edges = np.concatenate((edges, [2.0 * cloudy_depth[-1] - edges[-1]]))
+        run_ovr["depth_input"] = outer_edges
 
-        return outer_edges
+        return run_ovr
+
+    def read_overview(self, columns: list[str] | None = None, drop_failed: bool = True) -> pl.DataFrame:
+        """
+        Reads all models' .ovr files back from the HDF5 catalogue. Returns:
+
+        `pl.DataFrame`, sorted by contiguous run ID, where each row contains depth-ordered quantities from the
+        .ovr file for a zone in the given run ID. The values come from the final iteration.
+        """
+        ovr_group: h5py.Group = self._file["cloudy_data/ovr"]
+        names = columns if columns is not None else list(self._ovr_datasets)
+        # these aren't very big so can do everything in-memory
+        flat_datasets = {name: ovr_group[self._ovr_datasets[name]][:] for name in ["depth", *names]}
+
+        # run IDs aren't contiguously-ordered since they get written as they come back
+        order = np.argsort(self._ovr_starts)
+        run_ids = np.repeat(order, self._ovr_lengths[order])
+        successes = self.successes[run_ids]
+
+        df = (
+            pl.DataFrame({"run_id": run_ids, "success": successes, **flat_datasets})
+            .filter(
+                pl.col("success") | pl.lit(not drop_failed)
+            )  # unioning success with the literal bool input drops failed runs
+            .sort("run_id", maintain_order=True)
+        )
+
+        # add input depth column for aligning Cloudy reported depth to evaluated depth (outer edge of each zone dr)
+        next_depth = pl.col("depth").shift(-1).over("run_id")
+        previous_depth = pl.col("depth").shift(1).over("run_id")
+
+        df = df.with_columns(
+            (0.5 * (pl.col("depth") + next_depth))  # 0.5 * (x_i + x_(i+1)) gives approximate right edge
+            .fill_null(1.5 * pl.col("depth") - 0.5 * previous_depth)  # assuming symmetry (zones are tiny anyway)
+            .alias("depth_input")
+        )
+
+        return df
+
+    def read_continuum(self, drop_failed: bool = True) -> pl.DataFrame:
+        """
+        Reads all models' .con files back from the HDF5 catalogue. Returns:
+
+        `pl.DataFrame`, sorted by contiguous run ID, where each row contains the currently-read continuum values
+        for the given run ID. Values come from the final iteration.
+
+        Access the `continuum_wavelengths` property for the corresponding wavelengths.
+
+        Combined is divided by wavelength.
+        """
+        con_group: h5py.Group = self._file["cloudy_data"]["con"]
+        n_rays = len(self)
+        n_wavelengths = con_group["combined"].shape[1]
+
+        combined = pl.Series("combined", con_group["combined"][:], dtype=pl.Array(pl.Float64, n_wavelengths))
+        df = (
+            pl.DataFrame({"run_id": np.arange(n_rays), "success": self.successes})
+            .with_columns(combined)
+            .filter(
+                pl.col("success") | pl.lit(not drop_failed)
+            )  # unioning success with the literal bool input drops failed runs
+        )
+
+        return df
+
+    def read_lines(self, drop_failed: bool = True) -> pl.DataFrame:
+        """
+        Reads all models' .lin files back from the HDF5 catalogue. Returns:
+
+        `pl.DataFrame`, sorted by contiguous run ID, where each row contains a model's line ratios as
+        columns.
+
+        Units: normalised intensity relative to H beta.
+        """
+        lin_group: h5py.Group = self._file["cloudy_data"]["lin"]
+        labels = lin_group["labels"].asstr()[:]
+        values = lin_group["values"][:]
+
+        df = pl.DataFrame(values, schema=labels, orient="row").with_columns(pl.Series("success", self.successes))
+
+        # in-place insertion of run IDs
+        df.insert_column(0, pl.Series("run_id", np.arange(len(self))))
+
+        # then filter the bad apples
+        df = df.filter(pl.col("success") | pl.lit(not drop_failed))
+
+        return df
 
 
 def get_output_filename(config: CloudyConfig, star: str, star_age_myr: float) -> Path:
@@ -237,8 +359,6 @@ def write_result(out: h5py.File, result: CloudyResult) -> None:
             lin.create_dataset("values", dtype=np.float64, shape=(n_rays, len(result.lines)), fillvalue=np.nan)
 
         lin["values"][result.run_id] = np.fromiter(result.lines.values(), dtype=np.float64)
-
-    cloudy["success"][result.run_id] = result.success
 
 
 # NOTE: copied over from octavius
