@@ -177,7 +177,7 @@ if __name__ == "__main__":
 
         console.log(f"Now making {key} SED.")
         wavelengths, fluxes, unit = sed_funcs[key](path)
-        console.log(f"  Points: {wavelengths.shape}")
+        console.log(f"  Points: {wavelengths.shape[0]:,}")
 
         tabulate_sed(wavelengths=wavelengths, fluxes=fluxes, cloudy_unit=unit, out_path=output_path)
         console.log(f"  Wrote SED to {output_path}")
@@ -188,6 +188,7 @@ if __name__ == "__main__":
     if enzo_sed_path.exists() and not args.force:
         console.log(f"{enzo_sed_path.name} exists, skipping.")
     else:
+        console.log("Now making SCHAERER-ENZO SED.")
         e_wavelengths, e_fluxes, e_unit = binned_schaerer_sed()
         e_intensities = (
             e_wavelengths * e_fluxes

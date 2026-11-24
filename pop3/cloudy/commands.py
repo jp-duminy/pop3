@@ -226,11 +226,11 @@ class RadSource(CloudyCommand):
 
     def __str__(self) -> str:
 
-        return "\n".join([str(self.shape), f"q(h) {self.normalisation!s:.6f}"])
+        return "\n".join([str(self.shape), str(self.normalisation)])
 
 
 @dataclass(frozen=True, slots=True)
-class LuminositySolar:
+class LuminositySolar(CloudyCommand):
     """
     Log solar luminosity.
     """
@@ -244,7 +244,7 @@ class LuminositySolar:
 
 
 @dataclass(frozen=True, slots=True)
-class QHydrogen:
+class QHydrogen(CloudyCommand):
     """
     Log of hydrogen-ionising photon count
     """

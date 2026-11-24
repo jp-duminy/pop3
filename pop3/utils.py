@@ -191,14 +191,14 @@ class CloudyMiscConfig:
     output_dir: Path
     plot_dir: Path
     timeout_s: float
-    cleanup_run_dirs: bool = False
-    store_overview: bool = True
-    store_continuum: bool = True
-    store_lines: bool = True
     sed_dir: Path
     larkin_260_path: Path
     larkin_40_path: Path
     schaerer_40_path: Path
+    cleanup_run_dirs: bool = False
+    store_overview: bool = True
+    store_continuum: bool = True
+    store_lines: bool = True
 
 
 @dataclass(frozen=True, slots=True)
