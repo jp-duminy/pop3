@@ -34,7 +34,19 @@ FILEPATHS = frozenset(
 )
 
 CLOUDY_FILEPATHS = frozenset(
-    {"linelist_path", "yield_path", "sed_path", "snap_dir", "cloudy_src_dir", "output_dir", "plot_dir"}
+    {
+        "linelist_path",
+        "yield_path",
+        "sed_path",
+        "snap_dir",
+        "cloudy_src_dir",
+        "output_dir",
+        "plot_dir",
+        "sed_dir",
+        "larkin_40_path",
+        "larkin_260_path",
+        "schaerer_40_path",
+    }
 )
 
 
@@ -183,6 +195,10 @@ class CloudyMiscConfig:
     store_overview: bool = True
     store_continuum: bool = True
     store_lines: bool = True
+    sed_dir: Path
+    larkin_260_path: Path
+    larkin_40_path: Path
+    schaerer_40_path: Path
 
 
 @dataclass(frozen=True, slots=True)

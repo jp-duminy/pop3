@@ -23,6 +23,7 @@ from .parsers import (
     read_out_log,
     read_overview,
 )
+from .seds import get_sed_path
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,7 +152,7 @@ class CloudyModel:
         if self.save_cmd.linelist is not None and physics.linelist_path is None:
             raise ValueError("SaveCmd requests lines but no linelist path is specified (cloudy will error out)")
 
-        for datafile in (physics.sed_path, physics.linelist_path):
+        for datafile in (get_sed_path(self.config), physics.linelist_path):
             if datafile is None:
                 continue
             link_path = run_dir / datafile.name

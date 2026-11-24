@@ -222,11 +222,39 @@ class RadSource(CloudyCommand):
     """
 
     shape: Blackbody | TableSED
-    log_q_hydrogen: float
+    normalisation: QHydrogen | LuminositySolar
 
     def __str__(self) -> str:
 
-        return "\n".join([str(self.shape), f"q(h) {self.log_q_hydrogen:.6f}"])
+        return "\n".join([str(self.shape), f"q(h) {self.normalisation!s:.6f}"])
+
+
+@dataclass(frozen=True, slots=True)
+class LuminositySolar:
+    """
+    Log solar luminosity.
+    """
+
+    log_L_sun: float
+
+    def __str__(self) -> str:
+
+        cmd = f"luminosity solar {self.log_L_sun:.6f}"
+        return cmd
+
+
+@dataclass(frozen=True, slots=True)
+class QHydrogen:
+    """
+    Log of hydrogen-ionising photon count
+    """
+
+    log_Qh: float
+
+    def __str__(self) -> str:
+
+        cmd = f"q(h) {self.log_Qh:.6f}"
+        return cmd
 
 
 @dataclass(frozen=True, slots=True)

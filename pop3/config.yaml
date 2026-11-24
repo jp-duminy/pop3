@@ -7,10 +7,10 @@ cloudy:
     n_iterations:   # set to None (i.e. leave empty) for one calculation
     iterate_to_convergence: False
     efrac_threshold: 0.01
-    density_tolerance: 2.0e-4
+    density_tolerance: 1.0e-4
     homogeneous: false
     use_cosmic_rays: true
-    sed_type: SCHAERER-BANDS  # used only for generating the actual SED
+    sed_type: SCHAERER-ENZO  # selects the SED (path determined automatically)
     sed_path: ~/mphys/data/cloudy_datafiles/schaerer_bands.sed
     linelist_path: ~/mphys/data/cloudy_datafiles/linelist.dat
     yield_path: ~/mphys/data/cloudy_datafiles/pop3_metals.tsv
@@ -35,7 +35,10 @@ cloudy:
     store_overview: true
     store_continuum: true
     store_lines: true
-
+    sed_dir: ~/mphys/data/cloudy_datafiles/seds
+    larkin_260_path: ~/mphys/data/larkin/atlas-T110422-L5p0978-Y24-Zm5-z=0-pop_iii.spect.dat
+    larkin_40_path: ~/mphys/data/larkin/atlas-T83800-L5p2326-Y24-Zm5-z=0-pop_iii.spect.dat
+    schaerer_40_path: ~/
 
 # these are (mostly) legacy fields
 spheres:

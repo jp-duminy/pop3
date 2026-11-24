@@ -16,21 +16,19 @@ from .commands import (
     HAZY_FLOOR,
     Abundances,
     Background,
-    Blackbody,
     ConstantDensity,
     ConstantTemperature,
     DlawTable,
     ElementAbundance,
     ElementTable,
     Iterate,
-    RadSource,
     SetDensityTolerance,
     SphereGeometry,
     StopCondition,
-    TableSED,
     TlawTable,
 )
 from .ray_extraction import RayArrays, RayHomogeneous
+from .seds import get_sed_command
 
 
 def build_cloudy_cmds(
@@ -148,17 +146,7 @@ def common_cmds(
     if physics.n_iterations is not None:
         cmds.append(Iterate(n_iterations=physics.n_iterations, to_convergence=physics.iterate_to_convergence))
 
-    # SED command
-    log_q_hydrogen = np.log10(2.469e49)  # this number is branded on my brain
-
-    match physics.sed_type:
-        case "BLACKBODY":
-            shape = Blackbody(log_temperature=4.9)
-        case "SCHAERER-BANDS":
-            shape = TableSED(sed_path=physics.sed_path)
-        case _:
-            raise ValueError("Unknown SED type :(")
-
-    cmds.append(RadSource(shape=shape, log_q_hydrogen=log_q_hydrogen))
+    sed = get_sed_command(config=config)
+    cmds.append(sed)
 
     return cmds

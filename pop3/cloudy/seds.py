@@ -2,56 +2,95 @@
 
 Functions for PopIII spectral energy distributions (SEDs). Main candidates:
 
-- Schaerer+2002
-- Yggdrasil
+- Enzo Schaerer+2002
+- Larkin+2023
+- Tabulated Schaerer
+- Yggdrasil?
 
 Hazy expects an SED file with:
 
 LHS: photon energy (default in Rydberg, change with 'units' e.g. 'units eV')
 RHS: intensity (default in J_nu, change with 'nuFnu')
 
+# NOTE: the Larkin 40 SED is actually 42.376 in table 5, there is a model at 37.694 but I thought if I had to
+pick one value I'd rather go for the harder SED. Likewise with the Larkin 260, which is 275.853 for the same reason.
+
 """
 
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..utils import CloudyConfig
 
 import numpy as np
 
 from ..utils import instantiate_console, load_config, parse_args
+from .commands import Blackbody, LuminositySolar, QHydrogen, RadSource, TableSED
+
+# name, what to normalise by, log value
+NORMALISATIONS: dict[str, tuple[str, float]] = {
+    "BLACKBODY": QHydrogen(np.log10(2.469e49)),
+    "SCHAERER-ENZO": QHydrogen(np.log10(2.469e49)),
+    "SCHAERER-40": QHydrogen(np.log10(2.469e49)),
+    "LARKIN-40": LuminositySolar(5.480),
+    "LARKIN-260": LuminositySolar(6.764),
+}
+
+
+def get_sed_command(config: CloudyConfig) -> RadSource:
+    """
+    Determines the SED filepath, normalisation, and returns the `RadSource` command.
+    """
+    selected_sed = config.physics.sed_type
+    norm = NORMALISATIONS[selected_sed]
+
+    sed_path = get_sed_path(config)
+
+    if sed_path is None:
+        shape = Blackbody(log_temperature=4.9)
+    else:
+        shape = TableSED(sed_path=sed_path)
+
+    sed = RadSource(shape=shape, normalisation=norm)
+
+    return sed
+
+
+def get_sed_path(config: CloudyConfig) -> Path | None:
+    """
+    Get the SED path from the config. This is just so other files can find the SEDs too.
+    """
+    if config.physics.sed_type == "BLACKBODY":
+        return None
+    return config.misc.sed_dir / f"{config.physics.sed_type}.sed"
 
 
 def tabulate_sed(
-    energies_eV: np.ndarray,
+    wavelengths: np.ndarray,
     fluxes: np.ndarray,
-    sed_path: Path,
-    force: bool = False,
+    cloudy_unit: str,  # going to make this a hard requirement so units don't haunt me
+    out_path: Path,
 ) -> None:
     """
     Turns arrays of energies and fluxes into a Cloudy-readable file. Writes it to `sed_path`.
     """
-
-    if energies_eV.shape != fluxes.shape:
+    if wavelengths.shape != fluxes.shape:
         raise ValueError("Shapes of input arrays are not equal.")
 
-    if sed_path.exists() and not force:
-        raise ValueError("SED already exists and -force flag is not enabled.")
+    out_path.unlink(missing_ok=True)
 
-    sed_path.unlink(missing_ok=True)
-
-    intensities = (
-        energies_eV * fluxes
-    )  # proportional to L_nu which is proportional to J_nu, since cloudy normalises to Q(h) this should accurately control the shape
-
-    first_row = f"{energies_eV[0]:.6f} {intensities[0]:.6f} units eV"
+    first_row = f"{wavelengths[0]} {fluxes[0]} {cloudy_unit}"
     remaining_rows = "\n".join(
-        f"{energy:.6f} {intensity:.6f}" for energy, intensity in zip(energies_eV[1:], intensities[1:], strict=True)
+        f"{energy} {intensity}" for energy, intensity in zip(wavelengths[1:], fluxes[1:], strict=True)
     )
 
     sed = "\n".join((first_row, remaining_rows))
 
-    sed_path.write_text(sed, encoding="ascii")
+    out_path.write_text(sed, encoding="ascii")
 
 
-def binned_schaerer_sed() -> tuple[np.ndarray, np.ndarray]:
+def binned_schaerer_sed() -> tuple[np.ndarray, np.ndarray, str]:
     """
     Table 4 of Schaerer+2002 Q values (four-bin spectra, cumulative). Turned into monochromatic four-band SED.
 
@@ -85,19 +124,73 @@ def binned_schaerer_sed() -> tuple[np.ndarray, np.ndarray]:
     band_levels = q_band / np.diff(e_vals)
     table_fluxes = np.repeat(band_levels, 2)
 
-    return table_energies, table_fluxes
+    return table_energies, table_fluxes, "units eV"
+
+
+def full_schaerer_sed(path: Path) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Tabulates the full Schaerer SED.
+    """
+    raise ValueError("Coming soon!")
+
+
+def larkin_sed(path: Path) -> tuple[np.ndarray, np.ndarray, str]:
+    """
+    Larkin+2023 SEDs.
+    """
+    wavelengths_angstrom, energies_cgs = np.loadtxt(path, comments="#", delimiter=",", unpack=True, skiprows=11)
+    # have to deduplicate entries otherwise Cloudy crashes
+    unique_wavelengths, unique_idx = np.unique(wavelengths_angstrom, return_index=True)
+    unique_energies_cgs = energies_cgs[unique_idx]
+
+    units = "units angstrom FLambda"
+
+    return unique_wavelengths, unique_energies_cgs, units
 
 
 if __name__ == "__main__":
     args = parse_args()
     config = load_config(args=args)
     console = instantiate_console()
-    physics = config.cloudy.physics
+    misc = config.cloudy.misc
 
-    match physics.sed_type:
-        case "SCHAERER-BANDS":
-            console.log("Generating Schaerer table 4 band SED.")
-            energies, fluxes = binned_schaerer_sed()
+    console.log("Regenerating SEDs.")
 
-    tabulate_sed(energies_eV=energies, fluxes=fluxes, sed_path=physics.sed_path, force=args.force)
-    console.log(f"SED written to {physics.sed_path}")
+    # TODO: add Schaerer here when he emails
+    sed_dict = {
+        "LARKIN-40": misc.larkin_40_path,
+        "LARKIN-260": misc.larkin_260_path,
+    }
+    sed_funcs = {
+        "LARKIN-40": larkin_sed,
+        "LARKIN-260": larkin_sed,
+    }
+
+    for key, path in sed_dict.items():
+        if not path.exists():
+            raise ValueError("config path does not exist.")
+
+        output_path = misc.sed_dir / f"{key}.sed"
+        if output_path.exists() and not args.force:
+            console.log(f"{output_path.name} exists, skipping.")
+            continue
+
+        console.log(f"Now making {key} SED.")
+        wavelengths, fluxes, unit = sed_funcs[key](path)
+        console.log(f"  Points: {wavelengths.shape}")
+
+        tabulate_sed(wavelengths=wavelengths, fluxes=fluxes, cloudy_unit=unit, out_path=output_path)
+        console.log(f"  Wrote SED to {output_path}")
+        del output_path, wavelengths, fluxes, unit  # so I don't pass these
+
+    # this one doesn't come from a datafile so gets handled explicitly (should be the only of its kind)
+    enzo_sed_path = misc.sed_dir / "SCHAERER-ENZO.sed"
+    if enzo_sed_path.exists() and not args.force:
+        console.log(f"{enzo_sed_path.name} exists, skipping.")
+    else:
+        e_wavelengths, e_fluxes, e_unit = binned_schaerer_sed()
+        e_intensities = (
+            e_wavelengths * e_fluxes
+        )  # proportional to L_nu which is proportional to J_nu, since cloudy normalises to Q(h) this should accurately control the shape
+        tabulate_sed(wavelengths=e_wavelengths, fluxes=e_intensities, cloudy_unit=e_unit, out_path=enzo_sed_path)
+        console.log(f"  Wrote SED to {enzo_sed_path}")
