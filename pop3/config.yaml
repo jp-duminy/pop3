@@ -5,20 +5,19 @@ cloudy:
   physics:
 
     n_iterations:   # set to None (i.e. leave empty) for one calculation
-    iterate_to_convergence: False
+    iterate_to_convergence: True
     efrac_threshold: 0.01
     density_tolerance: 1.0e-4
     homogeneous: false
     use_cosmic_rays: true
-    sed_type: SCHAERER-ENZO  # selects the SED (path determined automatically)
-    sed_path: ~/mphys/data/cloudy_datafiles/schaerer_bands.sed
+    sed_type: LARKIN-40  # selects the SED (path determined automatically)
     linelist_path: ~/mphys/data/cloudy_datafiles/linelist.dat
     yield_path: ~/mphys/data/cloudy_datafiles/pop3_metals.tsv
 
   sim:
 
     targets:
-      POP3-379:
+      POP3-240:
         [2.5]
     n_side: 1  # n_rays = 12 * n_side**2
     ray_length_kpc: 1.5  # make longer than necessary since not all rays stop at equal distances

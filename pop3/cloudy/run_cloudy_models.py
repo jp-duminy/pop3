@@ -20,6 +20,7 @@ import healpy as hp
 import numpy as np
 import polars as pl
 from mpi4py.futures import MPIPoolExecutor
+from yt.config import ytcfg
 
 from ..utils import instantiate_console, load_config, my_progress, parse_args
 from .cloudy_model import CloudyModel, CloudyResult
@@ -47,6 +48,7 @@ def run_stardust(
     - the output path
     - the number of successes
     """
+    ytcfg["yt", "suppress_stream_logging"] = True  # stop the progress bars clashing
     star_pos, redshift, actual_age, snapshot = get_star(
         ledger=ledger, star_name=star_name, star_age_myr=star_age_myr, console=console
     )

@@ -153,7 +153,6 @@ class CloudyPhysicsConfig:
 
     linelist_path: Path
     yield_path: Path
-    sed_path: Path
     sed_type: str
     use_cosmic_rays: bool = True
     efrac_threshold: float = 0.01  # fergus' choice
