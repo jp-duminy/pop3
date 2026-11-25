@@ -21,6 +21,7 @@ dependencies = [
     "rich>=15.0",
     "matplotlib>=3.11",
     "h5py>=3.6",
+    "healpy>=1.20",
 ]
 
 keywords = ["astrophysics", "pop2prime", "simulation", 

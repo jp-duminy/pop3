@@ -227,7 +227,10 @@ class OutputCatalogue:
         labels = lin_group["labels"].asstr()[:]
         values = lin_group["values"][:]
 
-        df = pl.DataFrame(values, schema=labels, orient="row").with_columns(pl.Series("success", self.successes))
+        # NOTE: if the same line appears twice in the file this does handle it but maybe worth deduping at some point
+        df = pl.DataFrame(values, schema=labels.tolist(), orient="row").with_columns(
+            pl.Series("success", self.successes)
+        )
 
         # in-place insertion of run IDs
         df.insert_column(0, pl.Series("run_id", np.arange(len(self))))
