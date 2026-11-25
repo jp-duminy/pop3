@@ -17,12 +17,7 @@ import numpy as np
 
 from ..utils import CloudyConfig
 from .commands import create_input_file
-from .parsers import (
-    read_continuum,
-    read_line_list,
-    read_out_log,
-    read_overview,
-)
+from .parsers import read_continuum, read_line_list, read_out_log, read_overview, read_stop_reason
 from .seds import get_sed_path
 
 
@@ -40,17 +35,18 @@ class CloudyResult:
 
     run_id: int
     success: bool
-    reason: str | None = None
+    fail_reason: str | None = None
+    stop_reason: str | None = None
     continuum: dict[str, np.ndarray] | None = None
     lines: dict[str, float] | None = None
     overview: dict[str, np.ndarray] | None = None
 
     @classmethod
-    def err(cls, run_id: int, reason: str) -> CloudyResult:
+    def err(cls, run_id: int, fail_reason: str, stop_reason: str | None = None) -> CloudyResult:
         """
         Returns an empty CloudyResult with the error status.
         """
-        result = cls(run_id=run_id, success=False, reason=reason)
+        result = cls(run_id=run_id, success=False, fail_reason=fail_reason, stop_reason=stop_reason)
 
         return result
 
@@ -111,7 +107,10 @@ class CloudyModel:
         """
         Parses Cloudy's output files into a neat CloudyResult object.
         """
-        log_output = read_out_log(out_path=self.run_dir / f"{self.run_id}.out")
+        out_path = self.run_dir / f"{self.run_id}.out"
+        out_txt = out_path.read_text(errors="replace").rstrip()
+        log_output = read_out_log(out_txt)
+        stop_reason = read_stop_reason(out_txt)
 
         if log_output is not None:  # returns None if Cloudy exited okay
             # if convergence/numerical failure, still return .ovr which contains state before failure
@@ -122,12 +121,13 @@ class CloudyModel:
 
                 return CloudyResult(
                     run_id=self.run_id,
-                    reason=log_output,
+                    fail_reason=log_output,
+                    stop_reason=stop_reason,
                     success=False,
                     overview=ovr,
                 )
 
-            return CloudyResult.err(run_id=self.run_id, reason=log_output)
+            return CloudyResult.err(run_id=self.run_id, fail_reason=log_output, stop_reason=stop_reason)
 
         cont = read_continuum(continuum_path=self.run_dir / f"{self.run_id}.con") if self.save_cmd.continuum else None
         lin = read_line_list(line_path=self.run_dir / f"{self.run_id}.lin") if self.save_cmd.linelist else None
@@ -136,6 +136,7 @@ class CloudyModel:
         result = CloudyResult(
             run_id=self.run_id,
             success=True,
+            stop_reason=stop_reason,
             continuum=cont,
             lines=lin,
             overview=ovr,

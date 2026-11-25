@@ -16,6 +16,10 @@ CLOUDY_FAILURE: re.Pattern[str] = re.compile(  # Cloudy stops due to physics/num
 CLOUDY_CRASH: re.Pattern[str] = re.compile(  # Cloudy actually just crashes
     r"^\s*(?:PROBLEM|ABORT)\s+DISASTER\b.*?(?P<file>[\w./]+\.cpp:\d+)", re.MULTILINE
 )
+CLOUDY_STOP: re.Pattern[str] = re.compile(
+    r"^\s*(?:W-)?Calculation stopped because\s*(?P<reason>.+?)\s* Iteration (?P<iteration>\d+) of (?P<n_iterations>\d+)",
+    re.MULTILINE,
+)
 
 PRIMORDIAL_XH = 0.752  # primordial value as assumed by Cloudy
 
@@ -60,12 +64,10 @@ def read_overview(overview_path: Path) -> dict[str, np.ndarray]:
     return results
 
 
-def read_out_log(out_path: Path) -> str | None:
+def read_out_log(out_text: str) -> str | None:
     """
-    Reads the Cloudy .out file, returning `None` if all was well, and a string with the error message if not.
+    Reads the Cloudy .out file text, returning `None` if all was well, and a string with the error message if not.
     """
-    out_text = out_path.read_text(errors="replace").rstrip()
-
     if not out_text:
         return ".out file is empty"
 
@@ -80,6 +82,19 @@ def read_out_log(out_path: Path) -> str | None:
         return f"crashed in source code file {crash_match['file']} "
 
     return "unknown error"
+
+
+def read_stop_reason(out_txt: str) -> str | None:
+    """
+    Reads the stop reason from the text output of the Cloudy .out file (pass in Path.read_text)
+    """
+    matches = list(CLOUDY_STOP.finditer(out_txt))
+    stop_match = matches[-1] if matches else None
+
+    if stop_match is not None:
+        return f"Stopped due to {stop_match['reason']} on iteration {stop_match['iteration']} of {stop_match['n_iterations']}"
+
+    return None
 
 
 def read_nomoto_table(nomoto_path: Path) -> dict[str, float]:

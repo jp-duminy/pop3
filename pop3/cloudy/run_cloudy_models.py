@@ -100,8 +100,14 @@ def run_stardust(
         for future in as_completed(futures):
             result = future.result()
             progress.advance(task_id)
-            msg = "Success" if result.success else f"Error: {result.reason}"
-            logger.info(f"Cloudy Model {result.run_id}: {msg}")  # explicitly catches errors
+
+            if result.success:
+                msg = "Success!"
+                logger.info(f"Cloudy Model {result.run_id}: {msg}")
+            else:
+                msg = f"Error: {result.fail_reason}"
+                logger.warning(f"Cloudy Model {result.run_id}: {msg}")
+            logger.debug(f"     Stop Reason: {result.stop_reason}")
 
             write_result(out=out, result=result)
 
@@ -213,9 +219,9 @@ def run_ray(
         model.execute()
         return model.package_data()  # will return a Cloudy error
     except subprocess.TimeoutExpired:
-        return CloudyResult.err(run_id=model_input.run_ID, reason="timeout")
+        return CloudyResult.err(run_id=model_input.run_ID, fail_reason="timeout")
     except OSError as error:
-        return CloudyResult.err(run_id=model_input.run_ID, reason=f"io: {error}")
+        return CloudyResult.err(run_id=model_input.run_ID, fail_reason=f"io: {error}")
     finally:  # always clean up the model's run directory (if desired)
         if config.misc.cleanup_run_dirs:
             for run_file in model.run_dir.iterdir():
