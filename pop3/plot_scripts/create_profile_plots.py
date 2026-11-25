@@ -25,6 +25,7 @@ from matplotlib.colors import LogNorm
 from mpi4py.futures import MPIPoolExecutor
 
 from ..utils import (
+    get_logger,
     instantiate_console,
     load_config,
     my_progress,
@@ -55,6 +56,8 @@ LABELS: dict[str, str] = {
     "H_p1_number_density": r"$n_{\rm HII}\ [\mathrm{cm^{-3}}]$",
     "radius": r"$R\ [\mathrm{cm}]$",
 }
+
+logger = get_logger()
 
 
 class SphereTask(NamedTuple):
@@ -345,12 +348,12 @@ if __name__ == "__main__":
             continue
         filtered_tasks.append(SphereTask(label=sphere.label, snapshot=sphere.snapshot, sphere_path=sphere.sphere_path))
 
-    console.log(f"{len(filtered_tasks)} tasks to run; {len(all_tasks) - len(filtered_tasks)} skipped.")
+    logger.info(f"{len(filtered_tasks)} tasks to run; {len(all_tasks) - len(filtered_tasks)} skipped.")
 
     with my_progress(console=console) as progress, MPIPoolExecutor() as executor:
         task_id = progress.add_task("Making Profile Plots", total=len(filtered_tasks))
         futures = [executor.submit(process_sphere, task, config.plots.profile_plot_dir) for task in filtered_tasks]
 
         for future in as_completed(futures):
-            console.log(f"Done {future.result()}")
+            logger.info(f"Done {future.result()}")
             progress.advance(task_id)

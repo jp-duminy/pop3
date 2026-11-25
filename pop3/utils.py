@@ -148,6 +148,7 @@ class CloudyPhysicsConfig:
     - use_cosmic_rays = True, for numerical stability
     - efrac_threshold = 0.01, per Fergus/Nakajima
     - density_tolerance = 1.0e-5, Hazy default
+    - max_zones = 1,400, Hazy default
     - n_iterations = None, one calculation
     """
 
@@ -156,6 +157,7 @@ class CloudyPhysicsConfig:
     sed_type: str
     use_cosmic_rays: bool = True
     efrac_threshold: float = 0.01  # fergus' choice
+    max_zones: int = 1400
     density_tolerance: float = 1.0e-5
     n_iterations: int | None = None
     homogeneous: bool = False
@@ -280,10 +282,41 @@ def instantiate_console() -> Console:
         level=logging.INFO,
         format="%(message)s",
         datefmt="[%X]",
-        handlers=[RichHandler(console=console, show_path=False)],
+        handlers=[RichHandler(console=console, show_path=False, level=logging.INFO)],
     )
+    # need to specifically set the pop3 logger otherwise for some reason matplotlib appears in the log file
+    logging.getLogger("pop3").setLevel(logging.DEBUG)
 
     return console
+
+
+def attach_log_file(log_path: Path) -> logging.FileHandler:
+    """
+    Attaches a `FileHandler` to the logger so it can route messages to a .log file. Logs everything to DEBUG mode.
+
+    TODO: if for whatever reason going below DEBUG mode, change this
+    """
+    handler = logging.FileHandler(log_path, mode="w")
+    handler.setLevel(logging.DEBUG)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)-8s %(message)s"))
+    logging.getLogger("pop3").addHandler(handler)
+
+    return handler
+
+
+def detach_log_file(handler: logging.Handler) -> None:
+    """
+    Stops outputting to a log file so a new process can make its own one.
+    """
+    get_logger().removeHandler(handler)
+    handler.close()
+
+
+def get_logger() -> logging.Logger:
+    """
+    Get the pop3 logger.
+    """
+    return logging.getLogger("pop3")
 
 
 def my_progress(console: Console, spinner: str = "earth") -> Progress:

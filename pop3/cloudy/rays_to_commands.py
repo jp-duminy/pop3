@@ -26,6 +26,7 @@ from .commands import (
     SphereGeometry,
     StopCondition,
     TlawTable,
+    ZoneLimit,
 )
 from .ray_extraction import RayArrays, RayHomogeneous
 from .seds import get_sed_command
@@ -142,6 +143,7 @@ def common_cmds(
     cmds.append(StopCondition(electron_frac=physics.efrac_threshold, log_max_depth=log_max_depth))
     cmds.append(Background(redshift=redshift, use_cosmic_rays=physics.use_cosmic_rays))
     cmds.append(SetDensityTolerance(relative_tolerance=physics.density_tolerance))
+    cmds.append(ZoneLimit(n_zones=config.physics.max_zones))
 
     if physics.iterate_to_convergence and physics.n_iterations is None:
         cmds.append(Iterate(to_convergence=physics.iterate_to_convergence))  # is true by construction, default 10

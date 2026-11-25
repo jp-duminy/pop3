@@ -22,13 +22,23 @@ import polars as pl
 from mpi4py.futures import MPIPoolExecutor
 from yt.config import ytcfg
 
-from ..utils import instantiate_console, load_config, my_progress, parse_args
+from ..utils import (
+    attach_log_file,
+    detach_log_file,
+    get_logger,
+    instantiate_console,
+    load_config,
+    my_progress,
+    parse_args,
+)
 from .cloudy_model import CloudyModel, CloudyResult
 from .commands import SaveCmd
 from .data_storage import create_output_file, write_result
 from .parsers import read_nomoto_table
 from .ray_extraction import RayArrays, RayHomogeneous, create_cloudy_tasks
 from .rays_to_commands import build_cloudy_cmds
+
+logger = get_logger()
 
 
 def run_stardust(
@@ -55,7 +65,7 @@ def run_stardust(
     snap_path: Path = config.misc.snap_dir / snapshot / snapshot
 
     # prepare sightlines -> turn into yt rays -> iterator which workers can take Cloudy tasks from
-    console.log("Preparing Sightlines.")
+    logger.info("Preparing Sightlines.")
     model_inputs = (
         ModelInput(run_ID=run_id, ray=ray, yields=yields, redshift=redshift)
         for run_id, ray in enumerate(
@@ -71,8 +81,11 @@ def run_stardust(
     output_path = create_output_file(
         config=config, force=force, star_name=star_name, star_age_myr=actual_age, snapshot_path=snap_path
     )
-    console.log(f"Outputs will be written to {output_path}")
+    log_output_path = output_path.with_suffix(".log")
+    hand = attach_log_file(log_output_path)
+    logger.info(f"Outputs will be written to {output_path}")
     n_rays = hp.nside2npix(config.star.n_side)
+    logger.info(f"Running {n_rays:,} of length {config.star.ray_length_kpc} pkpc each.")
     successes = 0
 
     # progress bar + mpi worker pool (cloud emoji on the progress bar is rumoured to speed up cloudy)
@@ -88,15 +101,16 @@ def run_stardust(
             result = future.result()
             progress.advance(task_id)
             msg = "Success" if result.success else f"Error: {result.reason}"
-            console.log(f"Cloudy Model {result.run_id}: {msg}")  # explicitly catches errors
+            logger.info(f"Cloudy Model {result.run_id}: {msg}")  # explicitly catches errors
 
             write_result(out=out, result=result)
 
             if result.success:
                 successes += 1
 
-    console.log("All Cloudy Models Finished!")
-    console.log(f"{successes}/{n_rays} models succeeded.")
+    logger.info("All Cloudy Models Finished!")
+    logger.info(f"{successes}/{n_rays} models succeeded.")
+    detach_log_file(hand)  # call this so the next run (if looping) doesn't start writing into this file
 
     return output_path, successes
 
@@ -128,7 +142,7 @@ def get_star(
     - the matched age
     - the snapshot name
     """
-    console.log(f"Finding star {star_name} in the snapshot where its age is closest to {star_age_myr} Myr")
+    logger.info(f"Finding star {star_name} in the snapshot where its age is closest to {star_age_myr} Myr")
 
     target = pl.DataFrame({"label": [star_name], "target_age_myr": [star_age_myr]}).sort(
         "target_age_myr"
@@ -158,9 +172,9 @@ def get_star(
     redshift = closest["redshift"]
     snapshot = closest["snapshot"]
 
-    console.log(f"Found star {closest['label']} in snapshot {snapshot} at redshift {redshift:.3f}")
-    console.log(f"  Position (unitary units): {pos}")
-    console.log(f"  Age in this snapshot: {matched_age:.3f} Myr, {offset:.3f} Myr from input")
+    logger.info(f"Found star {closest['label']} in snapshot {snapshot} at redshift {redshift:.3f}")
+    logger.info(f"  Position (unitary units): {pos}")
+    logger.info(f"  Age in this snapshot: {matched_age:.3f} Myr, {offset:.3f} Myr from input")
 
     return pos, redshift, matched_age, snapshot
 

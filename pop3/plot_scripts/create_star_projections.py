@@ -16,11 +16,14 @@ from mpi4py.futures import MPIPoolExecutor
 
 from ..sim.pop3_ledger import add_metallicity3, select_stars, star_lifetime_summary
 from ..utils import (
+    get_logger,
     instantiate_console,
     load_config,
     my_progress,
     parse_args,
 )
+
+logger = get_logger()
 
 
 def build_film_tasks(
@@ -136,7 +139,7 @@ if __name__ == "__main__":
             continue
         filtered_tasks.append((row, outpath))
 
-    console.log(f"{len(filtered_tasks)} tasks to run; {all_tasks.height - len(filtered_tasks)} skipped.")
+    logger.info(f"{len(filtered_tasks)} tasks to run; {all_tasks.height - len(filtered_tasks)} skipped.")
 
     # pool workers for film making in conjunction with task-based progress bar
     with my_progress(console=console) as progress, MPIPoolExecutor() as executor:
@@ -148,5 +151,5 @@ if __name__ == "__main__":
 
         for future in as_completed(futures):  # as_completed() gives us the iterator for the progress bar
             outpath = future.result()
-            console.log(f"Saved {outpath}.")
+            logger.info(f"Saved {outpath}.")
             progress.advance(task_id)

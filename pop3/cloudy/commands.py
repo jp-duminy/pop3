@@ -416,3 +416,18 @@ class Iterate(CloudyCommand):
             cmd = f"iterate {self.n_iterations}"
 
         return cmd
+
+
+@dataclass(frozen=True, slots=True)
+class ZoneLimit(CloudyCommand):
+    """
+    Controls the maximum number of zones Cloudy can produce for a model. The default is 1,400.
+    """
+
+    n_zones: int
+
+    def __str__(self) -> str:
+
+        cmd = f"set nend {self.n_zones}"
+
+        return cmd

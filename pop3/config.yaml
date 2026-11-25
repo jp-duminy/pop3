@@ -7,6 +7,7 @@ cloudy:
     n_iterations:   # set to None (i.e. leave empty) for one calculation
     iterate_to_convergence: True
     efrac_threshold: 0.01
+    max_zones: 2000
     density_tolerance: 1.0e-4
     homogeneous: false
     use_cosmic_rays: true
@@ -19,7 +20,7 @@ cloudy:
     targets:
       POP3-240:
         [2.5]
-    n_side: 1  # n_rays = 12 * n_side**2
+    n_side: 2  # n_rays = 12 * n_side**2
     ray_length_kpc: 1.5  # make longer than necessary since not all rays stop at equal distances
     use_first_star: True  # only uses first listed age of first appearing star (for testing)
 

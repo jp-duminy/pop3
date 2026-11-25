@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 import numpy as np
 
-from ..utils import instantiate_console, load_config, parse_args
+from ..utils import get_logger, instantiate_console, load_config, parse_args
 from .commands import Blackbody, LuminositySolar, QHydrogen, RadSource, TableSED
 
 # name, what to normalise by, log value
@@ -36,6 +36,8 @@ NORMALISATIONS: dict[str, tuple[str, float]] = {
     "LARKIN-40": LuminositySolar(5.480),
     "LARKIN-260": LuminositySolar(6.764),
 }
+
+logger = get_logger()
 
 
 def get_sed_command(config: CloudyConfig) -> RadSource:
@@ -154,7 +156,7 @@ if __name__ == "__main__":
     console = instantiate_console()
     misc = config.cloudy.misc
 
-    console.log("Regenerating SEDs.")
+    logger.info("Regenerating SEDs.")
 
     # TODO: add Schaerer here when he emails
     sed_dict = {
@@ -172,26 +174,26 @@ if __name__ == "__main__":
 
         output_path = misc.sed_dir / f"{key}.sed"
         if output_path.exists() and not args.force:
-            console.log(f"{output_path.name} exists, skipping.")
+            logger.info(f"{output_path.name} exists, skipping.")
             continue
 
-        console.log(f"Now making {key} SED.")
+        logger.info(f"Now making {key} SED.")
         wavelengths, fluxes, unit = sed_funcs[key](path)
-        console.log(f"  Points: {wavelengths.shape[0]:,}")
+        logger.info(f"  Points: {wavelengths.shape[0]:,}")
 
         tabulate_sed(wavelengths=wavelengths, fluxes=fluxes, cloudy_unit=unit, out_path=output_path)
-        console.log(f"  Wrote SED to {output_path}")
+        logger.info(f"  Wrote SED to {output_path}")
         del output_path, wavelengths, fluxes, unit  # so I don't pass these
 
     # this one doesn't come from a datafile so gets handled explicitly (should be the only of its kind)
     enzo_sed_path = misc.sed_dir / "SCHAERER-ENZO.sed"
     if enzo_sed_path.exists() and not args.force:
-        console.log(f"{enzo_sed_path.name} exists, skipping.")
+        logger.info(f"{enzo_sed_path.name} exists, skipping.")
     else:
-        console.log("Now making SCHAERER-ENZO SED.")
+        logger.info("Now making SCHAERER-ENZO SED.")
         e_wavelengths, e_fluxes, e_unit = binned_schaerer_sed()
         e_intensities = (
             e_wavelengths * e_fluxes
         )  # proportional to L_nu which is proportional to J_nu, since cloudy normalises to Q(h) this should accurately control the shape
         tabulate_sed(wavelengths=e_wavelengths, fluxes=e_intensities, cloudy_unit=e_unit, out_path=enzo_sed_path)
-        console.log(f"  Wrote SED to {enzo_sed_path}")
+        logger.info(f"  Wrote SED to {enzo_sed_path}")

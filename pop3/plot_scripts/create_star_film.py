@@ -31,7 +31,7 @@ from matplotlib.colors import LogNorm
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 
 from ..sim.pop3_ledger import select_stars, star_lifetime_summary
-from ..utils import instantiate_console, load_config, parse_args
+from ..utils import get_logger, instantiate_console, load_config, parse_args
 
 MPL_STYLE = Path.home() / "mnras.mplstyle"
 
@@ -42,6 +42,8 @@ FIELD_STYLES: dict[str, tuple[str, str]] = {
 }
 
 METALLICITY_FLOOR = 1e-8
+
+logger = get_logger()
 
 
 def make_star_film(
@@ -410,4 +412,4 @@ if __name__ == "__main__":
                 axis=config.plots.axis,
                 framerate=config.plots.framerate,
             )
-            console.log(f"Finished film for {star['label']}.")
+            logger.info(f"Finished film for {star['label']}.")

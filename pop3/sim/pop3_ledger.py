@@ -18,9 +18,11 @@ import numpy as np
 import polars as pl
 import yt
 from mpi4py.futures import MPIPoolExecutor
+from rich.pretty import pretty_repr
 from yt.data_objects.particle_filters import add_particle_filter
 
 from ..utils import (
+    get_logger,
     instantiate_console,
     load_config,
     my_progress,
@@ -36,6 +38,8 @@ FIELD_MAP = {
     "creation_times_myr": ("creation_time", "Myr"),
 }
 MIN_SEP_MYR = 1e-3  # to filter Enzo's invasive star population
+
+logger = get_logger()
 
 
 def age_myr() -> pl.Expr:
@@ -216,7 +220,7 @@ if __name__ == "__main__":
     ledger = pl.concat(frame_list)  # vertical concat
     ledger = ledger.pipe(filter_duplicates, min_sep_myr=MIN_SEP_MYR).with_columns(age_myr(), is_alive(), star_label())
 
-    console.log(f"Total Pop3 Stars: {ledger.n_unique('particle_indices')}")
+    logger.info(f"Total Pop3 Stars: {ledger.n_unique('particle_indices')}")
 
     with pl.Config(tbl_rows=-1):  # set this so the whole dataframe prints
         df_diagnostic = (
@@ -224,7 +228,7 @@ if __name__ == "__main__":
             .unique("particle_indices", keep="first", maintain_order=True)
             .select("label", "particle_indices", "creation_times_myr", "metallicities")
         )
-        console.log(df_diagnostic)
+        logger.info(pretty_repr(df_diagnostic))
 
     ledger.write_parquet(config.stars.ledger_path)
-    console.log(f"Wrote parquet file at {config.stars.ledger_path}")
+    logger.info(f"Wrote parquet file at {config.stars.ledger_path}")

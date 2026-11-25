@@ -21,6 +21,7 @@ from scipy.optimize import brentq
 
 from ..sim.pop3_ledger import add_metallicity3, select_stars, star_lifetime_summary
 from ..utils import (
+    get_logger,
     instantiate_console,
     load_config,
     my_progress,
@@ -54,6 +55,8 @@ SPHERE_FIELDS = [
     ("index", "z"),
     ("index", "radius"),  # needed for profiles as the grid hierarchy gets flattened
 ]
+
+logger = get_logger()
 
 
 def build_sphere_tasks(ledger: pl.DataFrame, labels: list[str], snapshot_dir: Path) -> pl.DataFrame:
@@ -190,7 +193,7 @@ if __name__ == "__main__":
             continue
         filtered_tasks.append((row, outpath))
 
-    console.log(f"{len(filtered_tasks)} tasks to run; {all_tasks.height - len(filtered_tasks)} skipped.")
+    logger.info(f"{len(filtered_tasks)} tasks to run; {all_tasks.height - len(filtered_tasks)} skipped.")
 
     with my_progress(console=console) as progress, MPIPoolExecutor() as executor:
         task_id = progress.add_task("Creating spheres", total=len(filtered_tasks))
@@ -201,5 +204,5 @@ if __name__ == "__main__":
 
         for future in as_completed(futures):  # as_completed() gives us the iterator for the progress bar
             outpath = future.result()
-            console.log(f"Saved {outpath}.")
+            logger.info(f"Saved {outpath}.")
             progress.advance(task_id)
