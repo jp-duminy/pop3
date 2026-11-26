@@ -117,6 +117,9 @@ def run_stardust(
 
     logger.info("All Cloudy Models Finished!")
     logger.info(f"{successes}/{n_rays} models succeeded.")
+    if config.misc.cleanup_run_dirs:
+        _clean_model_dirs(output_dir=config.misc.output_dir, n_rays=n_rays)
+
     detach_log_file(hand)  # call this so the next run (if looping) doesn't start writing into this file
 
     return output_path, successes
@@ -223,11 +226,29 @@ def run_ray(
         return CloudyResult.err(run_id=model_input.run_ID, fail_reason="timeout")
     except OSError as error:
         return CloudyResult.err(run_id=model_input.run_ID, fail_reason=f"io: {error}")
-    finally:  # always clean up the model's run directory (if desired)
-        if config.misc.cleanup_run_dirs:
-            for run_file in model.run_dir.iterdir():
-                run_file.unlink()  # removes symlinks without touching their targets
-            model.run_dir.rmdir()
+
+
+def _clean_model_dirs(output_dir: Path, n_rays: int) -> None:
+    """
+    Goes into every directory which is number-only, cleans out their files, then unlinks
+    the directory.
+    """
+    logger.info(f"Clearing up model working directories in {output_dir}")
+
+    successes = 0
+    for run_id in range(n_rays):
+        model_dir = output_dir / str(run_id)
+        if not model_dir.is_dir():
+            logger.warning(f"{model_dir} does not exist.")
+            continue
+
+        for run_file in model_dir.iterdir():
+            run_file.unlink()  # severs symlinks but the original files live on
+
+        model_dir.rmdir()
+        successes += 1
+
+    logger.info(f"Successfully cleaned up {successes:,} directories.")
 
 
 if __name__ == "__main__":
