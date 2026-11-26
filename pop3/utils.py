@@ -6,7 +6,7 @@ Minor utilities.
 
 import argparse
 import logging
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from typing import Any
 
@@ -151,6 +151,7 @@ class CloudyPhysicsConfig:
     - use_cosmic_rays = True, for numerical stability
     - efrac_threshold = 0.01, per Fergus/Nakajima
     - density_tolerance = 1.0e-5, Hazy default
+    - stop temperature = 4000K, Hazy default
     - max_zones = 1,400, Hazy default
     - n_iterations = None, one calculation
     """
@@ -160,11 +161,23 @@ class CloudyPhysicsConfig:
     sed_type: str
     use_cosmic_rays: bool = True
     efrac_threshold: float = 0.01  # fergus' choice
+    stop_temperature: float = 4000
+    no_stop_temperature: bool = False
     max_zones: int = 1400
     density_tolerance: float = 1.0e-5
     n_iterations: int | None = None
-    homogeneous: bool = False
     iterate_to_convergence: bool = False
+    homogeneous: bool = False
+
+    def echo(self) -> str:
+        """
+        Returns a string of relevant physics parameters.
+        """
+        first_line = "Physics Parameters:"
+        body = "\n".join(f"     {field.name} = {getattr(self, field.name)}" for field in fields(self))
+        output = first_line + "\n" + body
+
+        return output
 
 
 @dataclass(frozen=True, slots=True)

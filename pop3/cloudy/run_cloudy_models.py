@@ -82,11 +82,11 @@ def run_stardust(
         config=config, force=force, star_name=star_name, star_age_myr=actual_age, snapshot_path=snap_path
     )
     log_output_path = output_path.with_suffix(".log")
-    hand = attach_log_file(log_output_path)
+    hand = attach_log_file(log_output_path)  # NOTE: from this point onwards logs go to the .log file
     logger.info(f"Outputs will be written to {output_path}")
     n_rays = hp.nside2npix(config.star.n_side)
     logger.info(f"Running {n_rays:,} rays of length {config.star.ray_length_kpc} pkpc each.")
-    logger.info(f"Using {config.physics.sed_type} SED.")
+    logger.info(f"{config.physics.echo()}")
     successes = 0
 
     # progress bar + mpi worker pool (cloud emoji on the progress bar is rumoured to speed up cloudy)

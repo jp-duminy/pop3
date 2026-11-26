@@ -257,6 +257,7 @@ class QHydrogen(CloudyCommand):
         return cmd
 
 
+# TODO: two stop commands currently since StopTemperature had to be added
 @dataclass(frozen=True, slots=True)
 class StopCondition(CloudyCommand):
     """
@@ -277,6 +278,24 @@ class StopCondition(CloudyCommand):
         if self.log_max_depth is not None:
             lines.append(f"stop depth {self.log_max_depth:.6f}")
         return "\n".join(lines)
+
+
+@dataclass(frozen=True, slots=True)
+class StopTemperature(CloudyCommand):
+    """
+    Controls the stopping temperature. If `off` gets toggled then the temperature stopping criterion
+    is turned off completely so `temperature` is not used.
+    """
+
+    linear_temperature: float = 4000
+    off: bool = False
+
+    def __str__(self) -> str:
+
+        if self.off is True:
+            return "stop temperature off"
+
+        return f"stop temperature {self.linear_temperature:.6f} linear"
 
 
 @dataclass(frozen=True, slots=True)

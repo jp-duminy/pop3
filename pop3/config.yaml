@@ -8,6 +8,8 @@ cloudy:
     iterate_to_convergence: True
     efrac_threshold: 0.01
     max_zones: 2000
+    stop_temperature: 1000
+    no_stop_temperature: True
     density_tolerance: 1.0e-4
     homogeneous: false
     use_cosmic_rays: true

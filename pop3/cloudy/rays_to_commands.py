@@ -25,6 +25,7 @@ from .commands import (
     SetDensityTolerance,
     SphereGeometry,
     StopCondition,
+    StopTemperature,
     TlawTable,
     ZoneLimit,
 )
@@ -141,6 +142,7 @@ def common_cmds(
     cmds: list[CloudyCommand] = []
     cmds.append(SphereGeometry(log_inner_radius=np.log10(r0)))
     cmds.append(StopCondition(electron_frac=physics.efrac_threshold, log_max_depth=log_max_depth))
+    cmds.append(StopTemperature(temperature=config.physics.stop_temperature, off=config.physics.no_stop_temperature))
     cmds.append(Background(redshift=redshift, use_cosmic_rays=physics.use_cosmic_rays))
     cmds.append(SetDensityTolerance(relative_tolerance=physics.density_tolerance))
     cmds.append(ZoneLimit(n_zones=config.physics.max_zones))

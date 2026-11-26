@@ -96,6 +96,9 @@ def heii_against_ciii(catalogue_path: Path, nakajima: pl.DataFrame, output_path:
     draw_nakajima(axes, nakajima, x_column="HeII 1640", y_column="CIII 1909")
     draw_duminy(axes, lines, HEII_KEY, CIII_KEY)
     axes.set(xscale="log", yscale="log", xlabel=HEII_LABEL, ylabel=CIII_LABEL, title="Nakajima+2022 Comparison Plot")
+    axes.set_title(
+        f"Nakajima+2022 Comparison: {cat.star} (age: {cat.star_age_myr:.3f} Myr, {cat.ray_length_kpc} pkpc rays)"
+    )
     axes.legend()
 
     if output_path is not None:
