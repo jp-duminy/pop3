@@ -59,9 +59,7 @@ def run_stardust(
     - the number of successes
     """
     ytcfg["yt", "suppress_stream_logging"] = True  # stop the progress bars clashing
-    star_pos, redshift, actual_age, snapshot = get_star(
-        ledger=ledger, star_name=star_name, star_age_myr=star_age_myr, console=console
-    )
+    star_pos, redshift, actual_age, snapshot = get_star(ledger=ledger, star_name=star_name, star_age_myr=star_age_myr)
     snap_path: Path = config.misc.snap_dir / snapshot / snapshot
 
     # prepare sightlines -> turn into yt rays -> iterator which workers can take Cloudy tasks from
@@ -141,9 +139,7 @@ class ModelInput(NamedTuple):
     run_ID: int
 
 
-def get_star(
-    ledger: pl.DataFrame, star_name: str, star_age_myr: float, console: Console
-) -> tuple[np.ndarray, float, float, str]:
+def get_star(ledger: pl.DataFrame, star_name: str, star_age_myr: float) -> tuple[np.ndarray, float, float, str]:
     """
     Uses the config and the ledger to find the requested star. Returns:
 
