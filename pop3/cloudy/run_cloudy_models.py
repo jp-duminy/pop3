@@ -86,6 +86,7 @@ def run_stardust(
     logger.info(f"Outputs will be written to {output_path}")
     n_rays = hp.nside2npix(config.star.n_side)
     logger.info(f"Running {n_rays:,} rays of length {config.star.ray_length_kpc} pkpc each.")
+    logger.info(f"Using {config.physics.sed_type} SED.")
     successes = 0
 
     # progress bar + mpi worker pool (cloud emoji on the progress bar is rumoured to speed up cloudy)

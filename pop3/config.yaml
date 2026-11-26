@@ -20,8 +20,8 @@ cloudy:
     targets:
       POP3-240:
         [2.5]
-    n_side: 2  # n_rays = 12 * n_side**2
-    ray_length_kpc: 1.5  # make longer than necessary since not all rays stop at equal distances
+    n_side: 8  # n_rays = 12 * n_side**2
+    ray_length_kpc: 2.0  # make longer than necessary since not all rays stop at equal distances
     use_first_star: True  # only uses first listed age of first appearing star (for testing)
 
   misc:
@@ -29,7 +29,7 @@ cloudy:
     snap_dir: /cephfs2/brs/pop2-prime/cc_512_no_dust_continue
     cloudy_src_dir: ~/astro_builds/cloudy
     plot_dir: ~/mphys/plots/cloudy_plots
-    output_dir: ~/mphys/data/cloudy_outputs
+    output_dir: ~/mphys/data/cloudy_outputs/larkin-40
     timeout_s: 3600.0
     cleanup_run_dirs: false
     store_overview: true
@@ -39,6 +39,7 @@ cloudy:
     larkin_260_path: ~/mphys/data/larkin/atlas-T110422-L5p0978-Y24-Zm5-z=0-pop_iii.spect.dat
     larkin_40_path: ~/mphys/data/larkin/atlas-T83800-L5p2326-Y24-Zm5-z=0-pop_iii.spect.dat
     schaerer_40_path: ~/
+    nakajima_path: ~/mphys/data/Models_popIII_NakajimaMaiolino2022.dat 
 
 # these are (mostly) legacy fields
 spheres:

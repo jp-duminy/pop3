@@ -46,18 +46,21 @@ CLOUDY_FILEPATHS = frozenset(
         "larkin_40_path",
         "larkin_260_path",
         "schaerer_40_path",
+        "nakajima_path",
     }
 )
 
 
-def load_config(args: argparse.Namespace) -> Pop3Config:
+def load_config(args: argparse.Namespace | None = None) -> Pop3Config:
     """
     Loads the config from args.config, and applies any requested overrides.
     """
-    config = Pop3Config.from_yaml(args.config)
-
-    if args.stars is not None:  # use replace to override frozen dataclass
-        config = replace(config, stars=replace(config.stars, process_stars=tuple(args.stars)))
+    if args is not None:
+        config = Pop3Config.from_yaml(args.config)
+        if args.stars is not None:  # use replace to override frozen dataclass
+            config = replace(config, stars=replace(config.stars, process_stars=tuple(args.stars)))
+    else:
+        config = Pop3Config.from_yaml(DEFAULT_CONFIG_PATH)
 
     return config
 
@@ -196,6 +199,7 @@ class CloudyMiscConfig:
     larkin_260_path: Path
     larkin_40_path: Path
     schaerer_40_path: Path
+    nakajima_path: Path
     cleanup_run_dirs: bool = False
     store_overview: bool = True
     store_continuum: bool = True
