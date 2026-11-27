@@ -45,7 +45,7 @@ CLOUDY_FILEPATHS = frozenset(
         "sed_dir",
         "larkin_40_path",
         "larkin_260_path",
-        "schaerer_40_path",
+        "schaerer_dir",
         "nakajima_path",
     }
 )
@@ -211,7 +211,7 @@ class CloudyMiscConfig:
     sed_dir: Path
     larkin_260_path: Path
     larkin_40_path: Path
-    schaerer_40_path: Path
+    schaerer_dir: Path
     nakajima_path: Path
     cleanup_run_dirs: bool = False
     store_overview: bool = True

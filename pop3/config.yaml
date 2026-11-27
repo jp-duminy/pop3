@@ -40,7 +40,7 @@ cloudy:
     sed_dir: ~/mphys/data/cloudy_datafiles/seds
     larkin_260_path: ~/mphys/data/larkin/atlas-T110422-L5p0978-Y24-Zm5-z=0-pop_iii.spect.dat
     larkin_40_path: ~/mphys/data/larkin/atlas-T83800-L5p2326-Y24-Zm5-z=0-pop_iii.spect.dat
-    schaerer_40_path: ~/
+    schaerer_dir: ~/mphys/data/schaerer
     nakajima_path: ~/mphys/data/Models_popIII_NakajimaMaiolino2022.dat 
 
 # these are (mostly) legacy fields

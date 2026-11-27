@@ -18,12 +18,15 @@ pick one value I'd rather go for the harder SED. Likewise with the Larkin 260, w
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 if TYPE_CHECKING:
     from ..utils import CloudyConfig
 
 import numpy as np
+import polars as pl
+from astropy.constants import codata2022 as co
+from astropy.constants import iau2015 as iau
 
 from ..utils import get_logger, instantiate_console, load_config, parse_args
 from .commands import Blackbody, LuminositySolar, QHydrogen, RadSource, TableSED
@@ -35,6 +38,32 @@ NORMALISATIONS: dict[str, tuple[str, float]] = {
     "SCHAERER-40": QHydrogen(np.log10(2.469e49)),
     "LARKIN-40": LuminositySolar(5.480),
     "LARKIN-260": LuminositySolar(6.764),
+}
+
+
+class AgeTrack(NamedTuple):
+    """
+    Container for a Schaerer age track.
+    """
+
+    log_L_sun: float
+    T_eff: float
+    log_g: float
+
+
+# keyed by age_myr then log(Lsun), T_eff, log(g)
+# from mode000_500.dat 40 Msun block
+SCHAERER_40: dict[float, AgeTrack] = {
+    5.2517e-05: AgeTrack(5.420, 80000.0, 5.0),
+    7.5340e-01: AgeTrack(5.454, 80000.0, 5.0),
+    1.4016e00: AgeTrack(5.494, 75000.0, 5.0),
+    1.9639e00: AgeTrack(5.532, 75000.0, 5.0),
+    2.4512e00: AgeTrack(5.567, 70000.0, 5.0),
+    2.8809e00: AgeTrack(5.601, 70000.0, 4.5),
+    3.2570e00: AgeTrack(5.633, 65000.0, 4.5),
+    3.5047e00: AgeTrack(5.656, 60000.0, 4.5),
+    3.7227e00: AgeTrack(5.677, 55000.0, 4.5),
+    3.8639e00: AgeTrack(5.691, 55000.0, 4.0),
 }
 
 logger = get_logger()
@@ -129,11 +158,170 @@ def binned_schaerer_sed() -> tuple[np.ndarray, np.ndarray, str]:
     return table_energies, table_fluxes, "units eV"
 
 
-def full_schaerer_sed(path: Path) -> tuple[np.ndarray, np.ndarray]:
+def full_schaerer_sed(
+    schaerer_dir: Path, track: dict[float, AgeTrack]
+) -> dict[float, tuple[np.ndarray, np.ndarray, str]]:
     """
-    Tabulates the full Schaerer SED.
+    Tabulates a full Schaerer SED for one mass track.
     """
-    raise ValueError("Coming soon!")
+    # I'm not changing these names so am hardcoding
+    tlusty = read_schaerer_tlusty_model(schaerer_dir / "f_tlusty_extendedgrid.fluxes")
+    kurucz_wavelengths = read_schaerer_kurucz(schaerer_dir / "fm50k2.pck")
+
+    seds: dict[float, tuple[np.ndarray, np.ndarray, str]] = {}
+
+    for age_myr, point in track.items():
+        model = tlusty.filter((pl.col("T_eff") == point.T_eff) & (pl.col("log(g)") == point.log_g))
+
+        # if this gets hit it's over
+        if model.is_empty():
+            raise ValueError(f"No TLUSTY model for T_eff = {point.T_eff}, log(g) = {point.log_g}")
+
+        flux_lambda = resample_to_kurucz(
+            wavelengths=model["wavelength_angstrom"].to_numpy(),
+            flux_nu=model["flux_nu"].to_numpy(),
+            kurucz_wavelengths=kurucz_wavelengths,
+        )
+
+        seds[age_myr] = (kurucz_wavelengths, flux_lambda, "units angstrom Flambda")
+
+    return seds
+
+
+def read_schaerer_tlusty_model(tlusty_path: Path) -> pl.DataFrame:
+    """
+    Turns the TLUSTY flux file into a dataframe with (T_eff, log(g), wavelength) on each row.
+    """
+    lines = pl.DataFrame({"line": tlusty_path.read_text().splitlines()})
+
+    tlusty_grid = (
+        lines.with_columns(
+            # first value is Teff, second is log(g) (surface gravity), with awkward spacing
+            # those two values are only in the header but the forward_fill alias puts them on every row
+            pl.col("line").str.extract(r"Teff,logg=\s+(\S+)", 1).cast(pl.Float64).forward_fill().alias("T_eff"),
+            pl.col("line").str.extract(r"Teff,logg=\s+\S+\s+(\S+)", 1).cast(pl.Float64).forward_fill().alias("log(g)"),
+            # two paired numbers in capital E exponent notation
+            pl.col("line")
+            .str.extract_groups(r"^\s+(?P<wavelength_angstrom>\S+E[+-]\d+)\s+(?P<flux_nu>\S+E[+-]\d+)\s*$")
+            .alias("vals"),
+        )
+        .filter(
+            pl.col("vals").struct.field("wavelength_angstrom").is_not_null()
+        )  # drop row if either parsed to null (1 covers both)
+        .unnest("vals")  # decompose the val column into its two groups
+        .with_columns(pl.col("wavelength_angstrom", "flux_nu").cast(pl.Float64))  # cast decomposed cols to float
+        .drop(pl.col("line"))
+    )
+
+    return tlusty_grid
+
+
+def read_schaerer_tracks(track_path: Path) -> pl.DataFrame:
+    """
+    Turns the evolutionary model tracks into a dataframe where each row is a track point.
+    """
+    lines = pl.DataFrame({"line": track_path.read_text().splitlines()})
+
+    track_grid = (
+        lines.with_columns(
+            pl.col("line")
+            # mass value (float) like 40.00, with whitespace at the end to ignore WR
+            .str.extract(r"^\s+(\d+\.\d+)(?:\s|$)", 1)
+            .cast(pl.Float64)
+            .forward_fill()
+            .alias("initial_mass"),
+            # in order: index, age (capital E exp notation), mass, log(L), log(T_eff)
+            pl.col("line").str.extract_groups(r"^\s*(\d+)\s+(\S+E[+-]\d+)\s+(\S+)\s+(\S+)\s+(\S+)").alias("row"),
+        )
+        .filter(pl.col("row").struct.field("1").is_not_null())  # only reason to grab index, check for weird rows
+        # (this is horrific) grab the final 4 columns
+        .select(
+            "initial_mass",
+            *[
+                pl.col("row").struct.field(str(group)).cast(pl.Float64).alias(name)
+                for group, name in zip(range(2, 6), ["age_yr", "mass", "log_L", "log_T_eff"], strict=True)
+            ],
+        )
+        .with_columns(pl.col("age_yr").truediv(1.0e6).alias("age_myr"))
+        .drop("age_yr")
+    )
+
+    return track_grid
+
+
+def read_schaerer_kurucz(kurucz_path: Path) -> np.ndarray:
+    """
+    Turns the esoteric Kurucz file into a wavelengths array.
+    """
+    values: list[float] = []
+    for line in kurucz_path.read_text().splitlines()[22:]:  # the fortran routine does this
+        if "TEFF" in line:
+            break
+        values.extend(float(val) for val in line.split())
+
+    wavelengths = np.asarray(values) * 10.0  # nm to angstrom
+
+    return wavelengths
+
+
+def match_schaerer_models(tracks: pl.DataFrame, tlusty: pl.DataFrame, initial_mass: float) -> pl.DataFrame:
+    """
+    What the (not compiling) fortran routine was supposed to do. Find a model first by T_eff then by log(g).
+    Returns a dataframe of the corresponding SED.
+    """
+    grid_points = tlusty.select("T_eff", "log(g)").unique()  # Cloudy won't accept dupes so dedupe
+
+    log_g_sun = np.log10((iau.GM_sun / iau.R_sun**2).to("cm * s**-2").value)
+    log_T_eff_sun = np.log10(((iau.L_sun / (4 * np.pi * iau.R_sun**2 * co.sigma_sb)).to("K**4").value) ** 0.25)
+
+    matched = (
+        tracks.filter(pl.col("initial_mass") == initial_mass)  # reduce to right mass track
+        # get luminosity and surface gravity (cheeky galaxies and cosmology simplified formula here)
+        .with_columns(
+            (
+                pl.lit(log_g_sun)
+                .add(pl.col("mass").log10())
+                .add((pl.col("log_T_eff").sub(log_T_eff_sun).mul(4.0).sub(pl.col("log_L"))))
+            ).alias("log(g)_tracks"),
+            (pl.lit(10.0).pow(pl.col("log_T_eff"))).alias("T_eff_star"),
+        )
+        # find last value in the TLUSTY grid which is closest to the effective temperature of the star
+        .sort("T_eff_star")
+        .join_asof(
+            grid_points.select(pl.col("T_eff").unique().sort()),
+            left_on="T_eff_star",
+            right_on="T_eff",
+            strategy="nearest",
+        )
+        # within that Teff, find the last value which is closest to the surface gravity of the star
+        .sort("log(g)_tracks")
+        .join_asof(
+            grid_points.sort("log(g)"), left_on="log(g)_tracks", right_on="log(g)", by="T_eff", strategy="nearest"
+        )
+        .sort("age_myr")
+    )
+
+    return matched
+
+
+def resample_to_kurucz(wavelengths: np.ndarray, flux_nu: np.ndarray, kurucz_wavelengths: np.ndarray) -> np.ndarray:
+    """
+    Log-linear interp onto the Kurucz wavelengths in wavelength space, what the fortran routine was doing.
+    """
+    flux_lambda = (
+        np.pi * flux_nu * co.c.to("AA/s").value / wavelengths**2
+    )  # NOTE: tlusty uses astrophysical flux which has pi in denom
+    keep = flux_lambda > 0  # there are some negative points in the file which crash Cloudy
+    # do the interpolation in logspace but we want linear flux
+    flux = 10 ** np.interp(kurucz_wavelengths, wavelengths[keep], np.log10(flux_lambda[keep]))
+
+    return flux
+
+
+def schaerer_sed(dir: Path) -> tuple[np.ndarray, np.ndarray, str]:
+    """
+    Schaerer+2002 SEDs.
+    """
 
 
 def larkin_sed(path: Path) -> tuple[np.ndarray, np.ndarray, str]:
@@ -168,6 +356,7 @@ if __name__ == "__main__":
         "LARKIN-260": larkin_sed,
     }
 
+    # Larkin+2023 SEDs
     for key, path in sed_dict.items():
         if not path.exists():
             raise ValueError("config path does not exist.")
@@ -185,7 +374,20 @@ if __name__ == "__main__":
         logger.info(f"  Wrote SED to {output_path}")
         del output_path, wavelengths, fluxes, unit  # so I don't pass these
 
-    # this one doesn't come from a datafile so gets handled explicitly (should be the only of its kind)
+    # Schaerer+2002 SEDs (age dependence), TODO: hardcode for now and update if need be, YAGNI
+    schaerer_out_dir = misc.sed_dir / "SCHAERER-40"
+    if schaerer_out_dir.exists() and not args.force:
+        logger.info(f"{schaerer_out_dir.name} exists, skipping.")
+    else:
+        logger.info("Now making SCHAERER-40 SEDs.")
+        schaerer_out_dir.mkdir(parents=True, exist_ok=True)
+        for age_myr, (s_wavelengths, s_fluxes, s_unit) in full_schaerer_sed(misc.schaerer_dir, SCHAERER_40).items():
+            s_path = schaerer_out_dir / f"tlusty_{age_myr:.4e}.sed"
+            tabulate_sed(wavelengths=s_wavelengths, fluxes=s_fluxes, cloudy_unit=s_unit, out_path=s_path)
+            logger.info(f"  Wrote {s_path.name}")
+        del s_wavelengths, s_fluxes, s_unit  # same again, stop myself from using these
+
+    # very basic Enzo SED
     enzo_sed_path = misc.sed_dir / "SCHAERER-ENZO.sed"
     if enzo_sed_path.exists() and not args.force:
         logger.info(f"{enzo_sed_path.name} exists, skipping.")
