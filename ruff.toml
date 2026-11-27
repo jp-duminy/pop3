@@ -13,3 +13,6 @@ ignore = ["ANN401"]
 
 [lint.per-file-ignores]
 "pop3/plot_scripts/create_star_film.py" = ["E402"]  # for the Agg use call
+
+[lint.flake8-bugbear]
+extend-immutable-calls = ["pop3.cloudy.lines.Line"]  # for the Line namedtuple which is immutable but Ruff doesn't recognise
