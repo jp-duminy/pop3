@@ -32,10 +32,9 @@ from ..utils import get_logger, instantiate_console, load_config, parse_args
 from .commands import Blackbody, LuminositySolar, QHydrogen, RadSource, TableSED
 
 # name, what to normalise by, log value
-NORMALISATIONS: dict[str, tuple[str, float]] = {
+NORMALISATIONS: dict[str, QHydrogen | LuminositySolar] = {
     "BLACKBODY": QHydrogen(np.log10(2.469e49)),
     "SCHAERER-ENZO": QHydrogen(np.log10(2.469e49)),
-    "SCHAERER-40": QHydrogen(np.log10(2.469e49)),
     "LARKIN-40": LuminositySolar(5.480),
     "LARKIN-260": LuminositySolar(6.764),
 }
@@ -69,32 +68,41 @@ SCHAERER_40: dict[float, AgeTrack] = {
 logger = get_logger()
 
 
-def get_sed_command(config: CloudyConfig) -> RadSource:
+def get_sed_command(config: CloudyConfig, star_age_myr: float) -> RadSource:
     """
     Determines the SED filepath, normalisation, and returns the `RadSource` command.
     """
     selected_sed = config.physics.sed_type
-    norm = NORMALISATIONS[selected_sed]
 
-    sed_path = get_sed_path(config)
+    if selected_sed == "BLACKBODY":
+        return RadSource(shape=Blackbody(log_temperature=4.9), normalisation=NORMALISATIONS[selected_sed]), None
 
-    if sed_path is None:
-        shape = Blackbody(log_temperature=4.9)
+    if selected_sed == "SCHAERER-40":
+        matched_age, track = match_schaerer_age(star_age_myr=star_age_myr, tracks=SCHAERER_40)
+        sed_path = config.misc.sed_dir / selected_sed / schaerer_sed_filename(matched_age)
+        norm = LuminositySolar(log_luminosity=track.log_L_sun)
     else:
-        shape = TableSED(sed_path=sed_path)
+        sed_path = config.misc.sed_dir / f"{selected_sed}.sed"
+        norm = NORMALISATIONS[selected_sed]
 
-    sed = RadSource(shape=shape, normalisation=norm)
+    if not sed_path.exists():  # avoid 15 minutes of worker fumbling
+        raise FileNotFoundError(f"SED file {sed_path} not found.")
 
-    return sed
+    shape = TableSED(sed_path=sed_path)
+    sed_cmd = RadSource(shape=shape, normalisation=norm)
+
+    return sed_cmd
 
 
-def get_sed_path(config: CloudyConfig) -> Path | None:
+def match_schaerer_age(star_age_myr: float, tracks: dict[float, AgeTrack]) -> tuple[float, AgeTrack]:
     """
-    Get the SED path from the config. This is just so other files can find the SEDs too.
+    Looks in the `tracks` dict and finds the closest age and `AgeTrack` object. Returns those two in order.
     """
-    if config.physics.sed_type == "BLACKBODY":
-        return None
-    return config.misc.sed_dir / f"{config.physics.sed_type}.sed"
+    schaerer_ages = np.fromiter(tracks.keys(), dtype=np.float64)
+    nearest_age = schaerer_ages[np.argmin(np.abs(schaerer_ages - star_age_myr))]
+    nearest_track = tracks[nearest_age]
+
+    return nearest_age, nearest_track
 
 
 def tabulate_sed(
@@ -318,10 +326,12 @@ def resample_to_kurucz(wavelengths: np.ndarray, flux_nu: np.ndarray, kurucz_wave
     return flux
 
 
-def schaerer_sed(dir: Path) -> tuple[np.ndarray, np.ndarray, str]:
+def schaerer_sed_filename(age_myr: float) -> str:
     """
-    Schaerer+2002 SEDs.
+    Helper function to get the Schaerer+2002 SED filename of a specific star, as a function so the
+    creation and access don't fight over the naming.
     """
+    return f"tlusty_{age_myr:.4e}.sed"
 
 
 def larkin_sed(path: Path) -> tuple[np.ndarray, np.ndarray, str]:
@@ -346,7 +356,7 @@ if __name__ == "__main__":
 
     logger.info("Regenerating SEDs.")
 
-    # TODO: add Schaerer here when he emails
+    # NOTE: set this up expecting Schaerer to slot in here nicely but now it's really just for Larkin
     sed_dict = {
         "LARKIN-40": misc.larkin_40_path,
         "LARKIN-260": misc.larkin_260_path,
@@ -381,8 +391,9 @@ if __name__ == "__main__":
     else:
         logger.info("Now making SCHAERER-40 SEDs.")
         schaerer_out_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"  Created {schaerer_out_dir} for models.")
         for age_myr, (s_wavelengths, s_fluxes, s_unit) in full_schaerer_sed(misc.schaerer_dir, SCHAERER_40).items():
-            s_path = schaerer_out_dir / f"tlusty_{age_myr:.4e}.sed"
+            s_path = schaerer_out_dir / schaerer_sed_filename(age_myr)
             tabulate_sed(wavelengths=s_wavelengths, fluxes=s_fluxes, cloudy_unit=s_unit, out_path=s_path)
             logger.info(f"  Wrote {s_path.name}")
         del s_wavelengths, s_fluxes, s_unit  # same again, stop myself from using these

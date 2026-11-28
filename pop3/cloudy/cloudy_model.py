@@ -16,9 +16,8 @@ from pathlib import Path
 import numpy as np
 
 from ..utils import CloudyConfig
-from .commands import create_input_file
+from .commands import RadSource, TableSED, create_input_file
 from .parsers import read_continuum, read_line_list, read_out_log, read_overview, read_stop_reason
-from .seds import get_sed_path
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,12 +147,17 @@ class CloudyModel:
         """
         Symlinks existing and requested datafiles into the model's run directory.
         """
-        physics = self.config.physics
+        # extract the sed path from the command
+        sed_path = next(
+            (
+                cmd.shape.sed_path
+                for cmd in self.in_cmds
+                if isinstance(cmd, RadSource) and isinstance(cmd.shape, TableSED)
+            ),
+            None,
+        )
 
-        if self.save_cmd.linelist is not None and physics.linelist_path is None:
-            raise ValueError("SaveCmd requests lines but no linelist path is specified (cloudy will error out)")
-
-        for datafile in (get_sed_path(self.config), physics.linelist_path):
+        for datafile in (sed_path, self.save_cmd.linelist):  # extract linelist path from the cmd as well
             if datafile is None:
                 continue
             link_path = run_dir / datafile.name

@@ -22,6 +22,7 @@ from .commands import (
     ElementAbundance,
     ElementTable,
     Iterate,
+    RadSource,
     SetDensityTolerance,
     SphereGeometry,
     StopCondition,
@@ -30,13 +31,12 @@ from .commands import (
     ZoneLimit,
 )
 from .ray_extraction import RayArrays, RayHomogeneous
-from .seds import get_sed_command
 
 
 def build_cloudy_cmds(
     ray: RayArrays | RayHomogeneous,
     yields: dict[str, float],
-    redshift: float,
+    star_cmds: list[CloudyCommand],
     config: CloudyConfig,
 ) -> list[CloudyCommand]:
     """
@@ -55,13 +55,14 @@ def build_cloudy_cmds(
         log_max_depth = np.log10(ray.depth[-1]) - 0.01  # go 0.01cm back so Cloudy doesn't extrapolate-abort
 
     cmds.extend(
-        common_cmds(
+        agnostic_cmds(
             r0=ray.r0,
             log_max_depth=log_max_depth,
-            redshift=redshift,
             config=config,
         )
     )
+
+    cmds.extend(star_cmds)
 
     return cmds
 
@@ -129,22 +130,16 @@ def homogeneous_to_cmds(
     return cmds
 
 
-def common_cmds(
-    r0: float,
-    log_max_depth: float,
-    redshift: float,
-    config: CloudyConfig,
-) -> list[CloudyCommand]:
+def build_star_cmds(config: CloudyConfig, redshift: float, sed_cmd: RadSource) -> list[CloudyCommand]:
     """
-    Builds commands which are agnostic to the arrays vs homogeneity choice.
+    Generates the commands common to each ray for one star in a given snapshot (background, limits/tolerances,
+    iterations, etc.). Returns a list of these commands.
     """
     physics = config.physics
     cmds: list[CloudyCommand] = []
-    cmds.append(SphereGeometry(log_inner_radius=np.log10(r0)))
-    cmds.append(StopCondition(electron_frac=physics.efrac_threshold, log_max_depth=log_max_depth))
-    cmds.append(StopTemperature(temperature=config.physics.stop_temperature, off=config.physics.no_stop_temperature))
     cmds.append(Background(redshift=redshift, use_cosmic_rays=physics.use_cosmic_rays))
     cmds.append(SetDensityTolerance(relative_tolerance=physics.density_tolerance))
+    cmds.append(StopTemperature(temperature=config.physics.stop_temperature, off=config.physics.no_stop_temperature))
     cmds.append(ZoneLimit(n_zones=config.physics.max_zones))
 
     if physics.iterate_to_convergence and physics.n_iterations is None:
@@ -153,7 +148,23 @@ def common_cmds(
     if physics.n_iterations is not None:
         cmds.append(Iterate(n_iterations=physics.n_iterations, to_convergence=physics.iterate_to_convergence))
 
-    sed = get_sed_command(config=config)
-    cmds.append(sed)
+    cmds.append(sed_cmd)
+
+    return cmds
+
+
+def agnostic_cmds(
+    r0: float,
+    log_max_depth: float,
+    config: CloudyConfig,
+) -> list[CloudyCommand]:
+    """
+    Builds commands which are agnostic to the arrays vs homogeneity choice but depend on the ray still (so r0 for
+    the point of intersection and max depth).
+    """
+    physics = config.physics
+    cmds: list[CloudyCommand] = []
+    cmds.append(SphereGeometry(log_inner_radius=np.log10(r0)))
+    cmds.append(StopCondition(electron_frac=physics.efrac_threshold, log_max_depth=log_max_depth))
 
     return cmds

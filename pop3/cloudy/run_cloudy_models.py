@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from rich.console import Console
 
     from ..utils import CloudyConfig
+    from .commands import CloudyCommand
 
 import subprocess
 from concurrent.futures import as_completed
@@ -36,7 +37,8 @@ from .commands import SaveCmd
 from .data_storage import create_output_file, write_result
 from .parsers import read_nomoto_table
 from .ray_extraction import RayArrays, RayHomogeneous, create_cloudy_tasks
-from .rays_to_commands import build_cloudy_cmds
+from .rays_to_commands import build_cloudy_cmds, build_star_cmds
+from .seds import get_sed_command
 
 logger = get_logger()
 
@@ -62,10 +64,24 @@ def run_stardust(
     star_pos, redshift, actual_age, snapshot = get_star(ledger=ledger, star_name=star_name, star_age_myr=star_age_myr)
     snap_path: Path = config.misc.snap_dir / snapshot / snapshot
 
+    output_path = create_output_file(
+        config=config, force=force, star_name=star_name, star_age_myr=actual_age, snapshot_path=snap_path
+    )
+    logger.info(f"Outputs will be written to {output_path}")
+    log_output_path = output_path.with_suffix(".log")
+
+    # NOTE: from this point onwards logs go to the .log file
+    hand = attach_log_file(log_output_path)
+
+    sed_cmd = get_sed_command(config=config, star_age_myr=actual_age)
+
+    logger.debug("Preparing common star commands.")
+    star_cmds = build_star_cmds(config=config, redshift=redshift, sed_cmd=sed_cmd)
+
     # prepare sightlines -> turn into yt rays -> iterator which workers can take Cloudy tasks from
     logger.info("Preparing Sightlines.")
     model_inputs = (
-        ModelInput(run_ID=run_id, ray=ray, yields=yields, redshift=redshift)
+        ModelInput(run_ID=run_id, ray=ray, yields=yields, star_cmds=star_cmds)
         for run_id, ray in enumerate(
             create_cloudy_tasks(
                 snap_path=snap_path,
@@ -76,12 +92,7 @@ def run_stardust(
             )
         )
     )
-    output_path = create_output_file(
-        config=config, force=force, star_name=star_name, star_age_myr=actual_age, snapshot_path=snap_path
-    )
-    log_output_path = output_path.with_suffix(".log")
-    hand = attach_log_file(log_output_path)  # NOTE: from this point onwards logs go to the .log file
-    logger.info(f"Outputs will be written to {output_path}")
+
     n_rays = hp.nside2npix(config.star.n_side)
     logger.info(f"Running {n_rays:,} rays of length {config.star.ray_length_kpc} pkpc each.")
     logger.info(f"{config.physics.echo()}")
@@ -129,13 +140,14 @@ class ModelInput(NamedTuple):
 
     - `ray` object
     - yields dict
-    - snapshot redshift
+    - star_cmds
+    - sed_path
     - run ID
     """
 
     ray: RayArrays | RayHomogeneous
     yields: dict[str, float]
-    redshift: float
+    star_cmds: list[CloudyCommand]
     run_ID: int
 
 
@@ -197,7 +209,7 @@ def run_ray(
     cmds = build_cloudy_cmds(
         ray=model_input.ray,
         yields=model_input.yields,
-        redshift=model_input.redshift,
+        star_cmds=model_input.star_cmds,
         config=config,
     )
     save_cmd = SaveCmd(
@@ -244,7 +256,7 @@ def _clean_model_dirs(output_dir: Path, n_rays: int) -> None:
         model_dir.rmdir()
         successes += 1
 
-    logger.info(f"Successfully cleaned up {successes:,} directories.")
+    logger.info(f"Successfully cleaned up {successes:,} directories!")
 
 
 if __name__ == "__main__":

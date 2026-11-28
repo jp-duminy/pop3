@@ -212,7 +212,7 @@ class TableSED(CloudyCommand):
 
     def __str__(self) -> str:
 
-        return f'table SED "{self.sed_path}"'
+        return f'table SED "{self.sed_path.name}"'
 
 
 @dataclass(frozen=True, slots=True)
